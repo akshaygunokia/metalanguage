@@ -8,6 +8,7 @@ from trl import GRPOConfig, GRPOTrainer
 import hashlib
 from fs_utils import latest_checkpoint_dir
 from bench_eval import run_evalchemy
+from train import train
 
 
 # -------------------------------
@@ -88,13 +89,7 @@ def launch():
         sys.exit(0 if ok else 1)
 
     # --- TRAIN (with optional periodic + final benchmark) ---
-    if args.num_processes == 1:
-        train(args)
-    else:
-        from accelerate import notebook_launcher
-        # Ensure the same CUDA_VISIBLE_DEVICES order is used
-        os.environ.setdefault("CUDA_VISIBLE_DEVICES", ",".join(str(i) for i in range(args.num_processes)))
-        notebook_launcher(train, (args,), num_processes=args.num_processes)
+    train(args)
 
 if __name__ == "__main__":
     launch()
