@@ -62,14 +62,6 @@ def launch():
     if not args.do_train and not args.do_bench and not args.bench_only:
         args.do_train = True
 
-    # If user didn’t set bf16/fp16, enable bf16 if supported
-    if not args.bf16 and not args.fp16:
-        try:
-            if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8:
-                args.bf16 = True
-        except Exception:
-            pass
-
     target_path = latest_checkpoint_dir(args.output_dir) or args.output_dir
     args.resume_from_checkpoint = latest_checkpoint_dir(args.output_dir)
     # --- BENCHMARK ONLY path (no Accelerate workers needed) ---
