@@ -6,8 +6,8 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 import hashlib
-from data_utils import build_dataset_openr1_bigmath_oneshot, small_eval_oneshot
-from rewards import reward_rlvr_oneshot
+from data_utils import build_dataset_openr1_bigmath_oneshot
+from rewards import reward_rlvr_oneshot, small_eval_oneshot
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
 # -------------------------------
