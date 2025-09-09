@@ -38,6 +38,7 @@ def parse_args():
     p.add_argument("--max_completion_length", type=int, default=128)
     p.add_argument("--add_answer_tag", action="store_true")
     p.add_argument("--eval_holdout", type=int, default=64)
+    p.add_argument("--generation_batch_size", type=int, default=126)
     p.add_argument("--use_vllm", action="store_true")
     p.add_argument("--vllm_mode", type=str, default="server", choices=["server", "colocate"])
     p.add_argument("--num_processes", type=int, default=1, help="World size (GPUs) to launch.")

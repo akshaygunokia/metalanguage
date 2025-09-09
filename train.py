@@ -101,7 +101,7 @@ def train(args):
 
         use_vllm=args.use_vllm,
         vllm_mode=args.vllm_mode,
-        generation_batch_size=126,  # slightly lower than default 256 to reduce spikes
+        generation_batch_size=args.generation_batch_size,
     )
 
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)
