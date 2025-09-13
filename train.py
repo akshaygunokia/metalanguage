@@ -74,8 +74,6 @@ def train(args):
         logging_steps=1,
         save_steps=1,
         save_total_limit=1,
-        report_to=["tensorboard"],
-
         use_vllm=args.use_vllm,
         vllm_mode=args.vllm_mode,
         generation_batch_size=args.generation_batch_size,
@@ -130,4 +128,5 @@ def train(args):
             output_path=outdir,
             cuda_visible_devices=args.bench_cuda,
         )
+
 
