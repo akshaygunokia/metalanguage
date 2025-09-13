@@ -23,28 +23,6 @@ def train(args):
 
     set_seed(args.seed)
 
-    # Write (or overwrite) DeepSpeed ZeRO-3 JSON so it’s self-contained
-    ds_conf = {
-        "zero_optimization": {
-            "stage": 3,
-            "overlap_comm": True,
-            "contiguous_gradients": True,
-            "reduce_scatter": True,
-            "stage3_param_persistence_threshold": 1000000,
-            "stage3_prefetch_bucket_size": 5e7,
-            "stage3_max_live_parameters": 1e9,
-            "stage3_max_reuse_distance": 1e9,
-            # Flip these to "cpu" if you still OOM:
-            "offload_param":     {"device": "none", "pin_memory": False},
-            "offload_optimizer": {"device": "none", "pin_memory": False}
-        },
-        "bf16": {"enabled": args.bf16},
-        "train_micro_batch_size_per_gpu": args.per_device_train_batch_size
-    }
-    os.makedirs(os.path.dirname(args.ds_config) or ".", exist_ok=True)
-    with open(args.ds_config, "w") as f:
-        json.dump(ds_conf, f, indent=2)
-
     # Tokenizer
     tok = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
     tok.padding_side = "left"
@@ -76,7 +54,6 @@ def train(args):
     # GRPO config
     cfg = GRPOConfig(
         output_dir=args.output_dir,
-        deepspeed=args.ds_config,
         learning_rate=args.lr,
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.grad_accum,
