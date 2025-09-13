@@ -33,8 +33,8 @@ def train(args):
     HARD_SUBSETS = ("level_5", "quintile_5")
     HARD_SOURCES = {"olympiads", "aops_forum"}              # None to keep all
     HARD_DOMAINS = {"Number Theory","Algebra","Geometry","Combinatorics"}  # None to keep all
-    MAX_TRAIN_EX = 126
-    EVAL_HOLDOUT = 7
+    MAX_TRAIN_EX = 128
+    EVAL_HOLDOUT = 8
     ADD_ANSWER_TAG = True
     train_ds, eval_ds = build_dataset_openr1_bigmath_oneshot(
         subsets=HARD_SUBSETS,

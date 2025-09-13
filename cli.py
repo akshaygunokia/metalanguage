@@ -17,30 +17,30 @@ from train import train
 def parse_args():
     p = argparse.ArgumentParser()
     # What to do
-    p.add_argument("--do_train", action="store_true", help="Run training")
+    p.add_argument("--do_train", action="store_true", default=True, help="Run training")
     p.add_argument("--do_bench", action="store_true", help="Run benchmark (periodic and/or final)")
     p.add_argument("--bench_only", action="store_true", help="Run benchmark only (no training)")
 
     # Model / data / training
-    p.add_argument("--model_id", type=str, default="Qwen/Qwen3-8B")
+    p.add_argument("--model_id", type=str, default="Qwen/Qwen3-4B-Thinking-2507")
     p.add_argument("--dataset_slug", type=str, default="GAIR/LIMR")
     p.add_argument("--ds_config", type=str, default="ds_zero3.json")
     p.add_argument("--output_dir", type=str, default="limr-grpo-qwen3-8b-zero3")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--bf16", action="store_true", default=True)
     p.add_argument("--fp16", action="store_true")
-    p.add_argument("--grad_ckpt", action="store_true")
+    p.add_argument("--grad_ckpt", action="store_true", default=True)
     p.add_argument("--num_epochs", type=float, default=100.0)
     p.add_argument("--per_device_train_batch_size", type=int, default=1)
-    p.add_argument("--grad_accum", type=int, default=64)
+    p.add_argument("--grad_accum", type=int, default=128)
     p.add_argument("--lr", type=float, default=1e-6)
-    p.add_argument("--num_generations", type=int, default=7)
+    p.add_argument("--num_generations", type=int, default=8)
     p.add_argument("--max_prompt_length", type=int, default=768)
-    p.add_argument("--generation_batch_size", type=int, default=126)
+    p.add_argument("--generation_batch_size", type=int, default=128*8)
     p.add_argument("--max_completion_length", type=int, default=3072)
-    p.add_argument("--use_vllm", action="store_true")
+    p.add_argument("--use_vllm", action="store_true", default=True)
     p.add_argument("--vllm_mode", type=str, default="server", choices=["server", "colocate"])
-    p.add_argument("--num_processes", type=int, default=7, help="World size (GPUs) to launch.")
+    p.add_argument("--num_processes", type=int, default=4, help="World size (GPUs) to launch.")
 
     # Benchmark config (shared by callback and one-shot)
     p.add_argument("--bench_tasks", type=str, default="AIME25,MATH500")
@@ -91,4 +91,5 @@ def launch():
 
 if __name__ == "__main__":
     launch()
+
 
