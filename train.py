@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerC
 from trl import GRPOConfig, GRPOTrainer
 import hashlib
 from data_utils import build_dataset_openr1_bigmath_oneshot
-from rewards import reward_rlvr_oneshot, small_eval_oneshot
+from rewards import small_eval_oneshot, reward_bigmath
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
 # -------------------------------
@@ -30,24 +30,14 @@ def train(args):
         tok.pad_token = tok.eos_token
 
     # Dataset  (pass tok, and keep RLVR builder)
-    HARD_SUBSETS = ("level_5", "quintile_5")
-    HARD_SOURCES = {"olympiads", "aops_forum"}              # None to keep all
-    HARD_DOMAINS = {"Number Theory","Algebra","Geometry","Combinatorics"}  # None to keep all
-    MAX_TRAIN_EX = 128
+    HARD_SUBSETS = ["level_5"]
+    MAX_TRAIN_EX = 16
     EVAL_HOLDOUT = 8
-    ADD_ANSWER_TAG = True
     train_ds, eval_ds = build_dataset_openr1_bigmath_oneshot(
         subsets=HARD_SUBSETS,
-        allow_sources=HARD_SOURCES,
-        allow_domains=HARD_DOMAINS,
-        solve_rate_min=None,
-        solve_rate_max=None,
-        max_chars_prompt=4000,
-        max_chars_solution=80,
-        keep_regex=r"^\s*([0-9\-\.]+|\\frac\{[^}]+\}\{[^}]+\}|\\sqrt\{[^}]+\}|[0-9]+\^[0-9]+|\\pi|\\boxed\{.*\})\s*$",
         max_train_examples=MAX_TRAIN_EX,
         eval_holdout=EVAL_HOLDOUT,
-        add_answer_tag=ADD_ANSWER_TAG,
+        batch_size=args.batch_size,
         seed=args.seed,
     )
 
@@ -85,7 +75,7 @@ def train(args):
         model=model,
         args=cfg,
         train_dataset=train_ds,
-        reward_funcs=reward_rlvr_oneshot,
+        reward_funcs=reward_bigmath,
         processing_class=tok,
     )
 
