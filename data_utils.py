@@ -27,25 +27,22 @@ def build_dataset(dataset_slug: str, add_answer_tag: bool, eval_holdout: int):
     return ds, eval_ds
 
 def build_dataset_openr1_bigmath_oneshot(
-    subsets=("level_5","quintile_5"),
+    subsets=["level_5"],
     allow_sources: set | None = None,          # e.g., {"olympiads","aops_forum"}
     allow_domains: set | None = None,          # e.g., {"Number Theory","Algebra","Geometry","Combinatorics"}
-    solve_rate_min: float | None = None,
-    solve_rate_max: float | None = None,
-    max_chars_prompt: int = 4000,
-    max_chars_solution: int = 80,              # short final forms preferred for auto-check
-    keep_regex: str = r"^\\s*([0-9\\-\\.]+|\\\\frac\\{[^}]+\\}\\{[^}]+\\}|\\\\sqrt\\{[^}]+\\}|[0-9]+\\^[0-9]+|\\\\pi|\\\\boxed\\{.*\\})\\s*$",
     max_train_examples: int = 126,            # “few good ones”
+    batch_size: int | None = None,
     eval_holdout: int = 10,
-    add_answer_tag: bool = True,
     seed: int = 42,
 ):
     """
-    Build a tiny one-shot RLVR set from open-r1/Big-Math-RL-Verified-Processed.
-    - merges selected subsets, filters to short, parseable final answers
-    - dedups identical problems across subsets/sources
-    - outputs columns: prompt, reward_model={'ground_truth': solution}
+    Build a small one-shot dataset from open-r1/Big-Math-RL-Verified-Processed.
+    - merges selected subsets
+    - optional filtering by source or domain
+    - shuffles, caps size, splits train/eval
+    - optionally pads/truncates to a batch-size multiple
     """
+
     import random, re
     random.seed(seed)
 
@@ -61,14 +58,6 @@ def build_dataset_openr1_bigmath_oneshot(
                 s = " ".join(dom) if isinstance(dom, list) else (dom or "")
                 return any(d.lower() in s.lower() for d in allow_domains)
             ds = ds.filter(_dom_ok)
-        if (solve_rate_min is not None) or (solve_rate_max is not None):
-            def _rate_ok(x):
-                r = x.get("llama8b_solve_rate", None)
-                if r is None: return False
-                if (solve_rate_min is not None) and (r < solve_rate_min): return False
-                if (solve_rate_max is not None) and (r > solve_rate_max): return False
-                return True
-            ds = ds.filter(_rate_ok)
         all_rows.append(ds)
 
     if not all_rows:
@@ -77,58 +66,40 @@ def build_dataset_openr1_bigmath_oneshot(
     from datasets import concatenate_datasets
     merged = concatenate_datasets(all_rows)
 
-    # 2) Light “good one-shot” filtering: lengths + regex-able final answers
-    keep_re = re.compile(keep_regex)
-    def _good(x):
-        p = x.get("prompt") or ""
-        s = str(x.get("solution") or "").strip()
-        if not p or not s: return False
-        if len(p) > max_chars_prompt: return False
-        if len(s) > max_chars_solution: return False
-        return bool(keep_re.match(s))
-    merged = merged.filter(_good)
-
-    # 3) Deduplicate by content hash
-    def _hash(ex):
-        h = hashlib.sha256()
-        h.update((ex["prompt"] + "\n<<ANS>>" + str(ex["solution"])).encode("utf-8"))
-        return {"_h": h.hexdigest()}
-    merged = merged.map(_hash)
-    try:
-        merged = merged.drop_duplicates(column_names=["_h"])
-    except AttributeError:
-        seen = set()
-        def _mark(ex):
-            h = ex["_h"]; keep = h not in seen; 
-            if keep: seen.add(h)
-            return {"__keep": keep}
-        merged = merged.map(_mark).filter(lambda x: x["__keep"]).remove_columns(["__keep"])
-
-    merged = merged.remove_columns(["_h"])
-
     # 4) Shuffle, cap size, split
     merged = merged.shuffle(seed=seed)
     if max_train_examples and len(merged) > (max_train_examples + eval_holdout):
         merged = merged.select(range(max_train_examples + eval_holdout))
 
-    # 5) Map to RLVR one-shot format
-    def _map_rlvr(ex):
-        p = ex["prompt"].rstrip()
-        if add_answer_tag:
-            p += "\nAnswer:"
-        return {
-            "prompt": p,
-            "reward_model": {"ground_truth": str(ex["solution"]).strip()},
-            "answer": str(ex["solution"]).strip(),
-        }
-    merged = merged.map(_map_rlvr, remove_columns=merged.column_names)
-
     # 6) Holdout for quick eval
     eval_ds = None
     if eval_holdout and len(merged) > eval_holdout:
         split = merged.train_test_split(test_size=eval_holdout, seed=seed, shuffle=True)
-        return split["train"], split["test"]
-    return merged, eval_ds
+
+        train_ds, eval_ds = split["train"], split["test"]
+    else:
+        train_ds, eval_ds = merged, None
+    if batch_size is not None:
+        from random import choices
+        n = len(train_ds)
+        if n % batch_size == 0:
+            pass  # already fine
+        elif n < batch_size:
+            # Compute full repeats and remainder for balanced upsampling
+            repeats, remainder = divmod(batch_size, n)
+            # Full repeats of entire dataset
+            idx = list(range(n)) * repeats
+            # Evenly distribute remainder (take first `remainder` examples)
+            idx += list(range(remainder))
+            train_ds = train_ds.select(idx)
+        else:
+            # more examples than batch size but not divisible
+            # truncate down to largest multiple of batch_size
+            target = (n // batch_size) * batch_size
+            train_ds = train_ds.select(range(target))
+
+    return train_ds, eval_ds
+
 
 
 def build_dataset_oneshot(dataset_slug: str, tok, add_answer_tag: bool, eval_holdout: int):
@@ -153,4 +124,5 @@ def build_dataset_oneshot(dataset_slug: str, tok, add_answer_tag: bool, eval_hol
         split = ds.train_test_split(test_size=eval_holdout, seed=42, shuffle=True)
         ds, eval_ds = split["train"], split["test"]
     return ds, eval_ds
+
 
