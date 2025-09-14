@@ -6,6 +6,9 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 import hashlib
+from typing import List
+from sympy import nsimplify, simplify, Eq
+import math
 
 # -------------------------------
 # Reward functions
@@ -35,51 +38,246 @@ def reward_exact(prompts, completions, completion_ids, gold=None, answer=None, *
         rewards.append(1.0 if pred == target else -1.0)
     return rewards
 
-_BOXED = re.compile(r"\\boxed\{([^}]*)\}", re.I)
+# --- Canon/Parsing helpers ---
+
+def _latex_to_ascii(s: str) -> str:
+    s = s.strip().strip("$").strip()
+    s = s.replace("−", "-").replace("·", "*").replace("π", "pi")
+    s = s.replace("∞", "oo").replace("°", "deg")
+    # remove common wrappers
+    s = re.sub(r"\\\(|\\\)|\\\[|\\\]", "", s)
+    # basic LaTeX spacing/formatting commands to drop
+    s = re.sub(r"\\(?:left|right|quad|qquad|,|;|!|:)", "", s)
+    s = re.sub(r"\\text\s*\{([^}]*)\}", r"\1", s)
+    # unbox/fbox
+    s = re.sub(r"\\(?:boxed|fbox)\s*\{([^}]*)\}", r"\1", s)
+    # convert LaTeX-style exponent x^{2} or x^2 -> x**2
+    s = re.sub(r"\^\s*\{([^}]+)\}", r"**(\1)", s)  # x^{y} -> x**(y)
+    s = re.sub(r"\^\s*([A-Za-z0-9\)\]])", r"**\1", s)  # x^2, (x+1)^3, etc.
+    # ops
+    s = s.replace(r"\cdot", "*").replace(r"\times", "*").replace(r"\div", "/")
+    s = re.sub(r"\\sqrt\s*\{([^}]*)\}", r"sqrt(\1)", s)
+    s = re.sub(r"\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}", r"(\1)/(\2)", s)
+    s = re.sub(r"\\overline\s*\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\%","%", s)
+    # collapse spaces
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 def _extract_final(text: str) -> str:
-    m = _BOXED.search(text)
-    if m: return m.group(1).strip()
-    tail = text[-400:]
-    m = re.search(r"(?i)(?:final answer|answer|ans)\s*[:\-]?\s*([^\n]+)", tail)
-    if m: return m.group(1).strip()
-    # last non-empty line
-    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    if not text:
+        return ""
+    # prefer last \boxed / \fbox
+    boxed = list(re.finditer(r"\\(?:boxed|fbox)\s*\{([^}]*)\}", text, flags=re.S))
+    if boxed:
+        return boxed[-1].group(1).strip()
+
+    tail = text[-1200:]  # search near the end
+    # explicit "answer:" markers
+    m = re.search(r"(?i)(?:final\s*answer|answer|ans)\s*[:\-]?\s*\$?([^\n]+)", tail)
+    if m:
+        return m.group(1).strip(" .")
+
+    # last display math $$...$$
+    m = re.search(r"\$\$([^$]+)\$\$(?!.*\$\$)", tail, flags=re.S)
+    if m:
+        return m.group(1).strip()
+
+    # last inline math \( ... \) or \[ ... \]
+    m = re.search(r"\\\(([^)]*)\\\)(?!.*\\\()", tail, flags=re.S)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"\\\[((?:.|\n)*?)\\\](?!.*\\\[)", tail)
+    if m:
+        return m.group(1).strip()
+
+    # last inline $...$
+    m = re.search(r"\$([^$]+)\$(?!.*\$)", tail, flags=re.S)
+    if m:
+        return m.group(1).strip()
+
+    # fallback: last non-empty line
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     return lines[-1] if lines else ""
 
-def _equiv(a: str, b: str) -> bool:
-    a = re.sub(r"\s+|,", "", a).replace("−","-").strip(".,").lower()
-    b = re.sub(r"\s+|,", "", b).replace("−","-").strip(".,").lower()
-    if a == b: return True
+_INTERVAL_RE = re.compile(r"^\s*([\(\[])\s*(.+?)\s*,\s*(.+?)\s*([\)\]])\s*$")
+
+def _looks_like_interval(s: str) -> bool:
+    return bool(_INTERVAL_RE.match(s.strip()))
+
+def _parse_interval(s: str):
+    # returns ((left_open: bool, right_open: bool), (left_val, right_val))
+    from sympy import nsimplify
+    m = _INTERVAL_RE.match(s.strip())
+    if not m:
+        raise ValueError("not an interval")
+    lbr, a, b, rbr = m.groups()
+    left_open  = (lbr == "(")
+    right_open = (rbr == ")")
+    a1, b1 = _latex_to_ascii(a), _latex_to_ascii(b)
     try:
-        from sympy import nsimplify, simplify
-        return simplify(nsimplify(a) - nsimplify(b)) == 0
+        A, B = nsimplify(a1), nsimplify(b1)
+    except Exception:
+        A, B = a1.lower(), b1.lower()
+    return (left_open, right_open), (A, B)
+
+def _looks_like_set(s: str) -> bool:
+    t = s.strip()
+    return (t.startswith("{") and t.endswith("}")) or t.lower().startswith("set")
+
+def _looks_like_tuple(s: str) -> bool:
+    t = s.strip()
+    return t.startswith("(") and t.endswith(")")
+
+def _parse_ordered_tuple(s: str):
+    core = s.strip().strip("()")
+    parts = [p.strip() for p in re.split(r"\s*,\s*", core) if p.strip()]
+    out = []
+    for p in parts:
+        p_ascii = _latex_to_ascii(p)
+        try:
+            out.append(nsimplify(p_ascii))
+        except Exception:
+            out.append(p_ascii.lower())
+    return tuple(out)
+
+def _parse_list_as_set(s: str):
+    core = s.strip().strip("{}[]()")
+    parts = [p.strip() for p in re.split(r"\s*,\s*", core) if p.strip()]
+    out = []
+    for p in parts:
+        p_ascii = _latex_to_ascii(p)
+        try:
+            out.append(nsimplify(p_ascii))
+        except Exception:
+            out.append(p_ascii.lower())
+    return set(out)
+
+def _to_number_with_percent(s: str):
+    t = s.strip().replace(" %", "%")
+    if t.endswith("%"):
+        return float(t[:-1].strip()) / 100.0
+    return float(t)
+
+_THOUSANDS = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
+def _maybe_desep_number(s: str) -> str:
+    t = s.strip()
+    return t.replace(",", "") if _THOUSANDS.match(t) else t
+
+def _equiv(a: str, b: str) -> bool:
+    def canon(s: str) -> str:
+        s = s.strip().strip(".,;")
+        s = s.replace("−", "-")
+        s = re.sub(r"\s+", " ", s)
+        return s
+
+    a0, b0 = canon(a), canon(b)
+
+    # quick literal ignoring spaces/case
+    if re.sub(r"\s+", "", a0).lower() == re.sub(r"\s+", "", b0).lower():
+        return True
+
+    a1, b1 = _latex_to_ascii(a0), _latex_to_ascii(b0)
+
+    # sets (unordered)
+    if _looks_like_set(a1) and _looks_like_set(b1):
+        try:
+            return _parse_list_as_set(a1) == _parse_list_as_set(b1)
+        except Exception:
+            pass
+
+    # intervals (order matters + bracket semantics matter)
+    if _looks_like_interval(a1) and _looks_like_interval(b1):
+        try:
+            (alo, aro), (A, B) = _parse_interval(a1)
+            (blo, bro), (C, D) = _parse_interval(b1)
+            if alo != blo or aro != bro:
+                return False
+            try:
+                from sympy import simplify
+                return simplify(A - C) == 0 and simplify(B - D) == 0
+            except Exception:
+                return str(A) == str(C) and str(B) == str(D)
+        except Exception:
+            pass
+
+    # ordered tuples
+    if _looks_like_tuple(a1) and _looks_like_tuple(b1):
+        try:
+            return _parse_ordered_tuple(a1) == _parse_ordered_tuple(b1)
+        except Exception:
+            pass
+
+    # algebraic/numeric equivalence
+    try:
+        A, B = nsimplify(a1), nsimplify(b1)
+        try:
+            return simplify(A - B) == 0
+        except Exception:
+            try:
+                return bool(Eq(A, B))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # numeric fallback (handles thousands separators & percents)
+    a2, b2 = _maybe_desep_number(a1), _maybe_desep_number(b1)
+    try:
+        af = _to_number_with_percent(a2)
+        bf = _to_number_with_percent(b2)
+        return math.isclose(af, bf, rel_tol=1e-6, abs_tol=1e-8)
     except Exception:
         return False
 
-def reward_rlvr_oneshot(prompts, completions, completion_ids, reward_model=None, **_):
-    """
-    Binary 0/1 reward: matches One-Shot RLVR. Expects a column named `reward_model`
-    (each row a dict with key 'ground_truth').
-    """
-    if reward_model is None:
-        raise ValueError("Dataset must include a `reward_model` column with 'ground_truth'.")
 
-    labels = [(rm or {}).get("ground_truth", "") for rm in reward_model]
+
+def reward_bigmath(prompts, completions, completion_ids,
+                   solution=None, **_):
+    """
+    Binary 0/1 reward for the open-r1/Big-Math-RL-Verified-Processed dataset.
+
+    Parameters
+    ----------
+    prompts : list[str]
+        Problem statements (ignored except for shape checks).
+    completions : list[str]
+        Model-generated outputs (one or more per prompt).
+    completion_ids : list[list[int]]
+        Token ids of completions (unused here but required by TRL).
+    solution : list[str]
+        Ground-truth worked solutions from the dataset.
+        Must contain the correct *final* answer somewhere inside.
+    **_ : dict
+        Catch-all for extra arguments passed by the trainer.
+
+    Returns
+    -------
+    list[float]
+        Reward per completion: 1.0 if the extracted final answer
+        matches the ground truth, else 0.0.
+    """
+    if solution is None:
+        raise ValueError("Dataset must provide the `solution` column.")
 
     B, C = len(prompts), len(completions)
     if B == 0 or C % B != 0:
-        raise ValueError(f"Shape mismatch: len(completions)={C}, len(prompts)={B}. Check num_generations.")
+        raise ValueError(
+            f"Shape mismatch: len(completions)={C}, len(prompts)={B}. "
+            "Check num_generations."
+        )
     G = C // B
 
+    # Tile the gold solutions to match the G completions per prompt
     tiled = []
-    for lab in labels:
-        tiled.extend([lab] * G)
+    for sol in solution:
+        tiled.extend([sol] * G)
 
     rewards = []
-    for y, target in zip(completions, tiled):
-        pred = _extract_final(y)
-        rewards.append(1.0 if _equiv(pred, target) else 0.0)  # use -1.0 instead of 0.0 if you prefer ±1
+    for pred_text, gold_text in zip(completions, tiled):
+        pred = _extract_final(pred_text)     # <-- implement to pull last boxed/number
+        gold = _extract_final(gold_text)     # same extraction for consistency
+        rewards.append(1.0 if _equiv(pred, gold) else 0.0)
     return rewards
 
 def small_eval_oneshot(trainer, eval_ds, tok, max_new_tokens: int = 64):
@@ -167,4 +365,5 @@ def small_eval(trainer, eval_ds, tok, max_new_tokens: int = 64):
         pred = m.group(1) if m else ""
         corr += int(pred == target)
     return {"eval_exact_acc": corr / len(golds)}
+
 
