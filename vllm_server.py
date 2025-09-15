@@ -15,11 +15,11 @@ from trl.scripts import vllm_serve
 
 def main():
     # ---- configure these ----
-    model_id = "Qwen/Qwen3-4B-Thinking-2507"
+    model_id = "Qwen/Qwen3-4B-Instruct-2507"
     max_model_len = 10240
     tensor_parallel = 1
     data_parallel = 4
-    host = "0.0.0.0"
+    host = "127.0.0.1"
     port = 8000
     # -------------------------
 
@@ -46,3 +46,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

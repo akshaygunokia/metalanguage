@@ -22,7 +22,7 @@ def parse_args():
     p.add_argument("--bench_only", action="store_true", help="Run benchmark only (no training)")
 
     # Model / data / training
-    p.add_argument("--model_id", type=str, default="Qwen/Qwen3-4B-Thinking-2507")
+    p.add_argument("--model_id", type=str, default="Qwen/Qwen3-4B-Instruct-2507")
     p.add_argument("--dataset_slug", type=str, default="GAIR/LIMR")
     p.add_argument("--ds_config", type=str, default="ds_zero3.json")
     p.add_argument("--output_dir", type=str, default="limr-grpo-qwen3-8b-zero3")
@@ -91,5 +91,6 @@ def launch():
 
 if __name__ == "__main__":
     launch()
+
 
 
