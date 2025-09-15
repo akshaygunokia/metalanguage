@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerC
 from trl import GRPOConfig, GRPOTrainer
 import hashlib
 from data_utils import build_dataset_openr1_bigmath_oneshot
-from rewards import small_eval_oneshot, reward_bigmath
+from rewards import small_eval_oneshot, reward_bigmath_accuracy
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
 # -------------------------------
@@ -75,7 +75,7 @@ def train(args):
         model=model,
         args=cfg,
         train_dataset=train_ds,
-        reward_funcs=reward_bigmath,
+        reward_funcs=reward_bigmath_accuracy,
         processing_class=tok,
     )
 
