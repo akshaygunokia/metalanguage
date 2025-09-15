@@ -9,7 +9,9 @@ import hashlib
 from typing import List
 from sympy import nsimplify, simplify, Eq
 import math
-
+from typing import Optional, List
+from math_verify import LatexExtractionConfig, parse, verify
+from latex2sympy2_extended import NormalizationConfig
 # -------------------------------
 # Reward functions
 # -------------------------------
@@ -37,6 +39,91 @@ def reward_exact(prompts, completions, completion_ids, gold=None, answer=None, *
         pred = m.group(1) if m else ""
         rewards.append(1.0 if pred == target else -1.0)
     return rewards
+
+def reward_bigmath_accuracy(
+    prompts: List[str],
+    completions: List[str],
+    completion_ids: List[List[int]],
+    solution: Optional[List[str]] = None,
+    **_
+) -> List[Optional[float]]:
+    """
+    Accuracy reward adapted to the Big-Math GRPO interface.
+
+    Parameters
+    ----------
+    prompts : list[str]
+        Problem statements (unused except for shape checks).
+    completions : list[str]
+        Model outputs (one or more per prompt).
+    completion_ids : list[list[int]]
+        Token ids of completions (unused here).
+    solution : list[str]
+        Ground-truth worked solutions from the dataset.
+
+    Returns
+    -------
+    list[Optional[float]]
+        1.0 if the parsed completion matches the gold parse,
+        0.0 if it parses but is wrong,
+        None if parsing fails (trainer will skip).
+    """
+    if solution is None:
+        raise ValueError("Dataset must provide the `solution` column.")
+
+    B, C = len(prompts), len(completions)
+    if B == 0 or C % B != 0:
+        raise ValueError(
+            f"Shape mismatch: len(completions)={C}, len(prompts)={B}. "
+            "Check num_generations."
+        )
+    G = C // B
+
+    # Repeat each gold solution to align with flattened completions
+    tiled_gold = []
+    for sol in solution:
+        tiled_gold.extend([sol] * G)
+
+    rewards: List[Optional[float]] = []
+    for content, sol in zip(completions, tiled_gold):
+        gold_parsed = parse(sol, extraction_mode="first_match")
+        if len(gold_parsed) == 0:
+            # Cannot parse gold → skip
+            rewards.append(0)
+            continue
+
+        # Parse the model output with strong normalization
+        answer_parsed = parse(
+            content,
+            extraction_config=[
+                LatexExtractionConfig(
+                    normalization_config=NormalizationConfig(
+                        nits=False,
+                        malformed_operators=False,
+                        basic_latex=True,
+                        equations=True,
+                        boxed="all",
+                        units=True,
+                    ),
+                    boxed_match_priority=0,
+                    try_extract_without_anchor=False,
+                )
+            ],
+            extraction_mode="first_match",
+        )
+        if len(answer_parsed) == 0:
+            rewards.append(0)
+            continue
+
+        # Verify symbolic equivalence
+        try:
+            rewards.append(float(verify(gold_parsed, answer_parsed)))
+        except Exception as e:
+            print(f"verify failed: {e}")
+            rewards.append(0)
+
+    return rewards
+
 
 # --- Canon/Parsing helpers ---
 
