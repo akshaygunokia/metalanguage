@@ -39,6 +39,7 @@ def train(args):
         eval_holdout=EVAL_HOLDOUT,
         batch_size=args.batch_size,
         seed=args.seed,
+        tok=tok
     )
 
     # GRPO config

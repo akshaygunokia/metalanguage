@@ -34,6 +34,7 @@ def build_dataset_openr1_bigmath_oneshot(
     batch_size: int | None = None,
     eval_holdout: int = 10,
     seed: int = 42,
+    tok=None,
 ):
     """
     Build a small one-shot dataset from open-r1/Big-Math-RL-Verified-Processed.
@@ -79,6 +80,19 @@ def build_dataset_openr1_bigmath_oneshot(
         train_ds, eval_ds = split["train"], split["test"]
     else:
         train_ds, eval_ds = merged, None
+    # Apply chat template if tokenizer provided
+    if tok is not None:
+        def _apply_chat(ex):
+            messages = [{"role": "user", "content": ex["prompt"]}]
+            ex["prompt"] = tok.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            return ex
+        train_ds = train_ds.map(_apply_chat)
+        if eval_ds is not None:
+            eval_ds = eval_ds.map(_apply_chat)
     if batch_size is not None:
         from random import choices
         n = len(train_ds)
@@ -124,5 +138,6 @@ def build_dataset_oneshot(dataset_slug: str, tok, add_answer_tag: bool, eval_hol
         split = ds.train_test_split(test_size=eval_holdout, seed=42, shuffle=True)
         ds, eval_ds = split["train"], split["test"]
     return ds, eval_ds
+
 
 
