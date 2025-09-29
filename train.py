@@ -68,6 +68,8 @@ def train(args):
         use_vllm=args.use_vllm,
         vllm_mode=args.vllm_mode,
         generation_batch_size=args.generation_batch_size,
+        vllm_server_host=args.vllm_host,
+        vllm_server_port=args.vllm_port,
     )
 
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)
