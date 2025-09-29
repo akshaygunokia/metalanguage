@@ -67,9 +67,9 @@ def train(args):
         save_total_limit=1,
         use_vllm=args.use_vllm,
         vllm_mode=args.vllm_mode,
-        generation_batch_size=args.generation_batch_size,
         vllm_server_host=args.vllm_host,
         vllm_server_port=args.vllm_port,
+        generation_batch_size=args.batch_size*args.num_generations,
     )
 
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)
@@ -121,5 +121,6 @@ def train(args):
             output_path=outdir,
             cuda_visible_devices=args.bench_cuda,
         )
+
 
 
