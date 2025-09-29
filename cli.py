@@ -40,6 +40,8 @@ def parse_args():
     p.add_argument("--max_completion_length", type=int, default=4096)
     p.add_argument("--use_vllm", action="store_true", default=True)
     p.add_argument("--vllm_mode", type=str, default="server", choices=["server", "colocate"])
+    p.add_argument("--vllm_host", type=str, default="100.71.100.14")
+    p.add_argument("--vllm_port", type=str, default="8191")
     p.add_argument("--num_processes", type=int, default=4, help="World size (GPUs) to launch.")
 
     # Benchmark config (shared by callback and one-shot)
@@ -91,6 +93,7 @@ def launch():
 
 if __name__ == "__main__":
     launch()
+
 
 
 
