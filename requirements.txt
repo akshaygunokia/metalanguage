@@ -1,0 +1,7 @@
+wandb
+deepspeed
+math_verify
+uvicorn
+trl[vllm]
+fastapi
+flash-attn
