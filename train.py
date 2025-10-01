@@ -61,7 +61,7 @@ def train(args):
         loss_type="dr_grpo",
         importance_sampling_level="sequence",
         beta=0.0,
-
+        report_to="wandb",
         logging_steps=1,
         save_steps=1,
         save_total_limit=1,
@@ -121,6 +121,7 @@ def train(args):
             output_path=outdir,
             cuda_visible_devices=args.bench_cuda,
         )
+
 
 
 
