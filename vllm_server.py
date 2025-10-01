@@ -18,7 +18,7 @@ def main():
     model_id = "Qwen/Qwen3-4B-Instruct-2507"
     max_model_len = 10240
     tensor_parallel = 1
-    data_parallel = 5
+    data_parallel = 4
     host = "0.0.0.0"
     port = 8191
     # -------------------------
@@ -39,7 +39,7 @@ def main():
 
     # Make sure we expose all GPUs you want to use
     # e.g. "0,1,2,3"
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1,2,3,4")
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0,1,2,3")
 
     # Launch the multi-process FastAPI server
     vllm_serve.main(args)

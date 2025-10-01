@@ -32,15 +32,15 @@ def parse_args():
     p.add_argument("--grad_ckpt", action="store_true", default=True)
     p.add_argument("--num_epochs", type=float, default=100.0)
     p.add_argument("--per_device_train_batch_size", type=int, default=1)
-    p.add_argument("--grad_accum", type=int, default=128)
+    p.add_argument("--grad_accum", type=int, default=256)
     p.add_argument("--lr", type=float, default=1e-6)
     p.add_argument("--num_generations", type=int, default=8)
     p.add_argument("--max_prompt_length", type=int, default=768)
     p.add_argument("--batch_size", type=int, default=128)
-    p.add_argument("--max_completion_length", type=int, default=4096)
+    p.add_argument("--max_completion_length", type=int, default=8192)
     p.add_argument("--use_vllm", action="store_true", default=True)
     p.add_argument("--vllm_mode", type=str, default="server", choices=["server", "colocate"])
-    p.add_argument("--vllm_host", type=str, default="100.71.100.14")
+    p.add_argument("--vllm_host", type=str, default="0.0.0.0")
     p.add_argument("--vllm_port", type=str, default="8191")
     p.add_argument("--num_processes", type=int, default=4, help="World size (GPUs) to launch.")
 
@@ -93,6 +93,7 @@ def launch():
 
 if __name__ == "__main__":
     launch()
+
 
 
 
