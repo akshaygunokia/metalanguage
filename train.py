@@ -70,6 +70,7 @@ def train(args):
         vllm_server_host=args.vllm_host,
         vllm_server_port=args.vllm_port,
         generation_batch_size=args.generation_batch_size,
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization
     )
 
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)

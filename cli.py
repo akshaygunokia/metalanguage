@@ -43,6 +43,7 @@ def parse_args():
     p.add_argument("--vllm_mode", type=str, default="server", choices=["server", "colocate"])
     p.add_argument("--vllm_host", type=str, default="0.0.0.0")
     p.add_argument("--vllm_port", type=str, default="8191")
+    p.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3)
     p.add_argument("--num_processes", type=int, default=4, help="World size (GPUs) to launch.")
 
     # Benchmark config (shared by callback and one-shot)
