@@ -36,6 +36,7 @@ def parse_args():
     p.add_argument("--lr", type=float, default=1e-6)
     p.add_argument("--num_generations", type=int, default=8)
     p.add_argument("--max_prompt_length", type=int, default=768)
+    p.add_argument("--generation_batch_size", type=int, default=128*2)
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--max_completion_length", type=int, default=8192)
     p.add_argument("--use_vllm", action="store_true", default=True)
