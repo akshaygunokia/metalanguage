@@ -101,7 +101,6 @@ def reward_bigmath_accuracy(
                         nits=False,
                         malformed_operators=False,
                         basic_latex=True,
-                        equations=True,
                         boxed="all",
                         units=True,
                     ),
