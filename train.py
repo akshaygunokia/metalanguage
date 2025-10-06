@@ -30,9 +30,9 @@ def train(args):
         tok.pad_token = tok.eos_token
 
     # Dataset  (pass tok, and keep RLVR builder)
-    HARD_SUBSETS = ["level_5"]
-    MAX_TRAIN_EX = 16
-    EVAL_HOLDOUT = 8
+    HARD_SUBSETS = ["level_4"]
+    MAX_TRAIN_EX = 4
+    EVAL_HOLDOUT = 2
     train_ds, eval_ds = build_dataset_openr1_bigmath_oneshot(
         subsets=HARD_SUBSETS,
         max_train_examples=MAX_TRAIN_EX,
@@ -121,7 +121,4 @@ def train(args):
             output_path=outdir,
             cuda_visible_devices=args.bench_cuda,
         )
-
-
-
 
