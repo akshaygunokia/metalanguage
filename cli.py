@@ -1,14 +1,9 @@
 # train_grpo_limr_zero3.py
 # pip install "evalchemy @ git+https://github.com/mlfoundations/evalchemy.git"
 import os, re, json, argparse, sys, subprocess, glob, time, datetime
-import torch
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerCallback
-from trl import GRPOConfig, GRPOTrainer
 import hashlib
 from fs_utils import latest_checkpoint_dir
 from bench_eval import run_evalchemy
-from train import train
 
 
 # -------------------------------
@@ -89,6 +84,7 @@ def launch():
             cuda_visible_devices=args.bench_cuda,
         )
         sys.exit(0 if ok else 1)
+    from train import train
 
     # --- TRAIN (with optional periodic + final benchmark) ---
     train(args)

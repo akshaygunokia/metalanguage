@@ -1,10 +1,7 @@
 # train_grpo_limr_zero3.py
 # pip install "evalchemy @ git+https://github.com/mlfoundations/evalchemy.git"
 import os, re, json, argparse, sys, subprocess, glob, time, datetime
-import torch
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerCallback
-from trl import GRPOConfig, GRPOTrainer
+from transformers import TrainerCallback
 import hashlib
 
 def run_evalchemy(model_backend: str,
