@@ -31,7 +31,7 @@ def run_evalchemy(model_backend: str,
 
     print(f"[Evalchemy] Running: {' '.join(cmd)}")
     t0 = time.time()
-    proc = subprocess.run(cmd, env=env, check=False)
+    proc = subprocess.run(cmd, env=env, check=False, cwd="/home/evalchemy")
     dt = time.time() - t0
     print(f"[Evalchemy] Exit code={proc.returncode} in {dt:.1f}s -> {output_path}")
     return proc.returncode == 0
