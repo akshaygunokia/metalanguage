@@ -3,7 +3,7 @@
 import os, re, json, argparse, sys, subprocess, glob, time, datetime
 import hashlib
 from fs_utils import latest_checkpoint_dir
-from bench_eval import run_evalchemy
+from bench_eval import run_lm_eval
 
 
 # -------------------------------
@@ -42,11 +42,11 @@ def parse_args():
     p.add_argument("--num_processes", type=int, default=4, help="World size (GPUs) to launch.")
 
     # Benchmark config (shared by callback and one-shot)
-    p.add_argument("--bench_tasks", type=str, default="AIME25,MATH500")
+    p.add_argument("--bench_tasks", type=str, default="aime25")
     p.add_argument("--bench_batch_size", type=int, default=2)
     p.add_argument("--bench_every_n_saves", type=int, default=100)
     p.add_argument("--bench_backend", type=str, choices=["hf","vllm"], default="vllm")
-    p.add_argument("--bench_extra_model_args", type=str, default="max_model_len=8192", help='e.g. "dtype=bfloat16"')
+    p.add_argument("--bench_extra_model_args", type=str, default="tensor_parallel_size=1,dtype=auto,gpu_memory_utilization=0.95,data_parallel_size=1,max_model_len=244656", help='e.g. "dtype=bfloat16"')
     p.add_argument("--bench_periodic", action="store_true", help="Run Evalchemy on every save via callback")
     p.add_argument("--bench_final", action="store_true", help="Run a final one-shot Evalchemy after training")
     p.add_argument("--bench_cuda", type=str, default=None, help='e.g. "1" to eval on GPU 1')
@@ -65,6 +65,8 @@ def launch():
     # --- BENCHMARK ONLY path (no Accelerate workers needed) ---
     if args.bench_only:
         # Build model_args for evalchemy
+        import torch.multiprocessing as mp
+        mp.set_start_method("spawn", force=True)
         if os.path.isdir(target_path):
             model_args = f"pretrained={target_path}"
         else:
@@ -75,7 +77,7 @@ def launch():
 
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         outdir = os.path.join(args.output_dir, "benchmarks", f"adhoc_{ts}")
-        ok = run_evalchemy(
+        ok = run_lm_eval(
             model_backend=args.bench_backend,
             model_args=model_args,
             tasks=args.bench_tasks,
@@ -91,6 +93,7 @@ def launch():
 
 if __name__ == "__main__":
     launch()
+
 
 
 
