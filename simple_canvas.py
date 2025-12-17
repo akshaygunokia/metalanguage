@@ -18,6 +18,9 @@ import hashlib
 def _sig_id(sig: str) -> str:
     return hashlib.sha256(sig.encode("utf-8")).hexdigest()[:24]  # short but safe
 
+def _ver_id(blob: str) -> str:
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]  # short but safe
+
 def _ensure(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -106,10 +109,13 @@ class Canvas:
     def PROPOSE(self, *, sig: str, doc: str, blob: str) -> Dict[str, Any]:
         with self._lock:
             try:
-                version_id = uuid4().hex
+                version_id = _ver_id(blob)
                 v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
                 if sig in self._modules:
                     m = self._modules[sig]
+                    for existing in m.versions:
+                        if existing.version_id == version_id:
+                            return {"success": True}
                     m.versions.append(v)
                 else:
                     m = Module(sig=sig, versions=[v])
@@ -148,14 +154,14 @@ class Canvas:
     
             return {"success": True, "data": items}
 
-    def update_score(self, *, sig: str, version_id: str, delta: float) -> Dict[str, Any]:
+    def update_score(self, *, sig: str, blob: str, delta: float) -> Dict[str, Any]:
         with self._lock:
             m = self._modules.get(sig)
             if m is None:
                 return {"success": False, "error": f"sig not found: {sig}"}
     
             for v in m.versions:
-                if v.version_id == version_id:
+                if v.version_id == _ver_id(blob):
                     try:
                         v.score += delta
                         self._save_version(sig, v)
