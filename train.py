@@ -10,6 +10,7 @@ from data_utils import build_dataset_openr1_bigmath_oneshot
 from rewards import small_eval_oneshot, reward_bigmath_accuracy
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
+from canvas_api import PROPOSE, READ, LIST
 # -------------------------------
 # Training (per rank)
 # -------------------------------
@@ -78,6 +79,7 @@ def train(args):
     trainer = GRPOTrainer(
         model=model,
         args=cfg,
+        tools=[PROPOSE, READ, LIST],   # ← ADD THIS
         train_dataset=train_ds,
         reward_funcs=reward_bigmath_accuracy,
         processing_class=tok,
