@@ -6,12 +6,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 import hashlib
-from typing import List
 from sympy import nsimplify, simplify, Eq
 import math
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 from math_verify import LatexExtractionConfig, parse, verify
 from latex2sympy2_extended import NormalizationConfig
+from canvas_api import update_score
 # -------------------------------
 # Reward functions
 # -------------------------------
@@ -41,8 +41,8 @@ def reward_exact(prompts, completions, completion_ids, gold=None, answer=None, *
     return rewards
 
 def reward_bigmath_accuracy(
-    prompts: List[str],
-    completions: List[str],
+    prompts: List[Any],
+    completions: List[Any],
     completion_ids: List[List[int]],
     solution: Optional[List[str]] = None,
     **_
@@ -54,7 +54,7 @@ def reward_bigmath_accuracy(
     ----------
     prompts : list[str]
         Problem statements (unused except for shape checks).
-    completions : list[str]
+    completions : list[Any]
         Model outputs (one or more per prompt).
     completion_ids : list[list[int]]
         Token ids of completions (unused here).
@@ -85,7 +85,7 @@ def reward_bigmath_accuracy(
         tiled_gold.extend([sol] * G)
 
     rewards: List[Optional[float]] = []
-    for content, sol in zip(completions, tiled_gold):
+    for completion, sol in zip(completions, tiled_gold):
         gold_parsed = parse(sol, extraction_mode="first_match")
         if len(gold_parsed) == 0:
             # Cannot parse gold → skip
@@ -94,7 +94,7 @@ def reward_bigmath_accuracy(
 
         # Parse the model output with strong normalization
         answer_parsed = parse(
-            content,
+            completion[-1]["content"],
             extraction_config=[
                 LatexExtractionConfig(
                     normalization_config=NormalizationConfig(
@@ -110,13 +110,23 @@ def reward_bigmath_accuracy(
             ],
             extraction_mode="first_match",
         )
+        read_versions = extract_read_versions(completion)
         if len(answer_parsed) == 0:
             rewards.append(0)
             continue
 
         # Verify symbolic equivalence
         try:
-            rewards.append(float(verify(gold_parsed, answer_parsed)))
+            reward = float(verify(gold_parsed, answer_parsed))
+            if reward > 0:
+                seen = set()
+                for v in read_versions:
+                    key = (v["sig"], v["blob"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    update_score(sig=v["sig"], blob=v["blob"], delta=reward)
+            rewards.append(reward)
         except Exception as e:
             print(f"verify failed: {e}")
             rewards.append(0)
@@ -125,6 +135,48 @@ def reward_bigmath_accuracy(
 
 
 # --- Canon/Parsing helpers ---
+
+def extract_read_versions(completion: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """
+    Extract READ tool responses from a chat-style completion.
+
+    Returns a list of dicts:
+      {
+        "sig": str,
+        "blob": str,
+        "ver_id": str,   # hash of blob
+      }
+    """
+    results: List[Dict[str, str]] = []
+
+    for msg in completion:
+        if msg.get("role") != "tool":
+            continue
+        if msg.get("name") != "READ":
+            continue
+
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+
+        try:
+            payload = json.loads(content)
+        except Exception:
+            continue
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            continue
+
+        sig = data.get("sig")
+        blob = data.get("blob")
+        if not isinstance(sig, str) or not isinstance(blob, str):
+            continue
+
+        results.append({"sig": sig, "blob": blob})
+
+    return results
+
 
 def _latex_to_ascii(s: str) -> str:
     s = s.strip().strip("$").strip()
