@@ -3,7 +3,7 @@ set -e
 
 # Launch vLLM server on GPUs 0-3
 echo "[INFO] Starting vLLM server on GPUs 0-3..."
-CUDA_VISIBLE_DEVICES=0,1,2,3 python3 ./vllm_server.py > vllm_server.log 2>&1 &
+CUDA_VISIBLE_DEVICES=0,1,2,3 python3 ./vllm_server_launch.py > vllm_server.log 2>&1 &
 
 # Capture server PID in case you want to kill it later
 VLLM_PID=$!
