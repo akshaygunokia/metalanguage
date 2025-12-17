@@ -81,12 +81,7 @@ def build_dataset_openr1_bigmath_oneshot(
     # Apply chat template if tokenizer provided
     if tok is not None:
         def _apply_chat(ex):
-            messages = [{"role": "user", "content": ex["prompt"]}]
-            ex["prompt"] = tok.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            ex["prompt"] = [{"role": "user", "content": ex["prompt"]}]
             return ex
         train_ds = train_ds.map(_apply_chat)
         if eval_ds is not None:
