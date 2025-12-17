@@ -1,282 +1,167 @@
 # simple_canvas.py
-# Minimal callable Canvas with DEFINE / REVISE / READ / LIST / DELETE.
-# Persistence: append-only JSONL at ./canvas.log (configurable).
-# Blobs: any JSON-serializable object.
+# Minimal callable Canvas with PROPOSE / READ / LIST.
+# TODO: Variant-only reward by design. Revision behavior is implicitly
+#       rewarded via the action chain (LIST -> READ -> PROPOSE/REVISE).
+#       Consider adding explicit lineage back-pay or revision bonuses
+#       if long repair chains or fork inflation become problematic.
 
 from __future__ import annotations
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
-from datetime import datetime, timezone
-import json, os, threading
+import threading
+import random
+import json, os
+from pathlib import Path
+import hashlib
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _sig_id(sig: str) -> str:
+    return hashlib.sha256(sig.encode("utf-8")).hexdigest()[:24]  # short but safe
 
-@dataclass(frozen=True)
-class Version:
-    version_id: str
-    created_at: str
-    delta: Optional[str]
-    blob: Any
-    meta: Dict[str, Any]
-    size_bytes: int
+def _ensure(p: Path):
+    p.mkdir(parents=True, exist_ok=True)
 
 @dataclass
-class ModuleMeta:
-    module_id: str
-    sig: Optional[str]
-    doc: Optional[str]
-    tags: List[str]
-    created_at: str
-    updated_at: str
-    last_version_id: str
-    version_count: int
+class Version:
+    version_id: str
+    blob: str
+    score: float
+    doc: str
+
+@dataclass
+class Module:
+    sig: str
+    versions: List[Version]
 
 class Canvas:
-    def __init__(self, log_path: str = "./canvas.log"):
-        self.log_path = log_path
+    def __init__(self, root: str = "canvas"):
         self._lock = threading.RLock()
-        self._modules: Dict[str, ModuleMeta] = {}
-        self._versions: Dict[str, List[Version]] = {}
-        if os.path.exists(self.log_path):
-            self._restore()
+        self._modules: Dict[str, Module] = {}
+        self._root = Path(root)
+        self.load()
 
-    # ---------- Public API (call these directly) ----------
-    def DEFINE(self, *, sig: Optional[str], doc: Optional[str], blob: Any,
-               tags: Optional[List[str]] = None, meta: Optional[Dict[str, Any]] = None
-               ) -> Tuple[str, str]:
-        """Create a new module with an initial version (immutable)."""
+    def _mod_dir(self, sig: str) -> Path:
+        return self._root / "modules" / _sig_id(sig)
+
+    def _save_module_meta(self, sig: str):
+        _ensure(self._mod_dir(sig))
+        with open(self._mod_dir(sig) / "module.json", "w") as f:
+            json.dump({"sig": sig}, f, indent=2, ensure_ascii=False)
+
+    def _ver_dir(self, sig: str) -> Path:
+        return self._mod_dir(sig) / "versions"
+
+    def _ver_path(self, sig: str, vid: str) -> Path:
+        return self._ver_dir(sig) / f"{vid}.json"
+
+    def load(self):
+        self._modules.clear()
+        mods = self._root / "modules"
+        if not mods.exists():
+            return
+
+        for md in mods.iterdir():
+            if not md.is_dir():
+                continue
+
+            meta = md / "module.json"
+            if not meta.exists():
+                continue
+            with open(meta) as f:
+                sig = json.load(f)["sig"]
+            versions = []
+            vdir = md / "versions"
+            if vdir.exists():
+                for vf in vdir.glob("*.json"):
+                    with open(vf) as f:
+                        d = json.load(f)
+                    versions.append(Version(
+                        version_id=d["version_id"],
+                        doc=d["doc"],
+                        blob=d["blob"],
+                        score=d.get("score", 0.0),
+                    ))
+
+            if versions:
+                self._modules[sig] = Module(sig=sig, versions=versions)
+
+    def _save_version(self, sig: str, v: Version):
+        _ensure(self._ver_dir(sig))
+        with open(self._ver_path(sig, v.version_id), "w") as f:
+            json.dump({
+                "version_id": v.version_id,
+                "doc": v.doc,
+                "blob": v.blob,
+                "score": v.score,
+            }, f, indent=2, ensure_ascii=False)
+
+    def _pick_winning_version(self, module: Module) -> Optional[Version]:
+        if not module.versions:
+            return None
+    
+        max_score = max(v.score for v in module.versions)
+        top = [v for v in module.versions if v.score == max_score]
+        return random.choice(top)
+
+    def PROPOSE(self, *, sig: str, doc: str, blob: str) -> Dict[str, Any]:
         with self._lock:
-            module_id = uuid4().hex
-            version_id = uuid4().hex
-            now = _now_iso()
-            v = Version(
-                version_id=version_id,
-                created_at=now,
-                delta="initial DEFINE",
-                blob=blob,
-                meta=meta or {},
-                size_bytes=_sizeof(blob),
-            )
-            m = ModuleMeta(
-                module_id=module_id, sig=sig, doc=doc, tags=tags or [],
-                created_at=now, updated_at=now, last_version_id=version_id,
-                version_count=1
-            )
-            self._modules[module_id] = m
-            self._versions[module_id] = [v]
-            self._append_log({"op":"DEFINE","module":asdict(m),"version":_v2dict(v)})
-            return module_id, version_id
+            try:
+                version_id = uuid4().hex
+                v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
+                if sig in self._modules:
+                    m = self._modules[sig]
+                    m.versions.append(v)
+                else:
+                    m = Module(sig=sig, versions=[v])
+                self._modules[sig] = m
+                self._save_module_meta(sig)
+                self._save_version(sig, v)
+                return {"success": True}
+            except Exception as e:
+                return {"success": False, "error": f"PROPOSE failed: {e}"}
 
-    def REVISE(self, *, module_id: str, blob: Any,
-               delta: Optional[str] = None, meta: Optional[Dict[str, Any]] = None
-               ) -> str:
-        """Add a new version to an existing module."""
+    def READ(self, *, sig: str) -> Dict[str, Any]:
         with self._lock:
-            m = self._require_module(module_id)
-            version_id = uuid4().hex
-            now = _now_iso()
-            v = Version(
-                version_id=version_id,
-                created_at=now,
-                delta=delta or "revision",
-                blob=blob,
-                meta=meta or {},
-                size_bytes=_sizeof(blob),
-            )
-            self._versions[module_id].append(v)
-            m.updated_at = now
-            m.last_version_id = version_id
-            m.version_count += 1
-            self._append_log({"op":"REVISE","module_id":module_id,"version":_v2dict(v)})
-            return version_id
+            m = self._modules.get(sig)
+            if m is None or not m.versions:
+                return {"success": False, "error": f"sig not found: {sig}"}
+            version = self._pick_winning_version(m)
+            if version is None:
+                return {"success": False, "error": f"no versions for sig: {sig}"}
+            return {"success": True, "data": {"sig": m.sig, "doc": version.doc, "blob": version.blob}}
 
-    def READ(self, *, module_id: str, version_id: Optional[str] = None) -> Dict[str, Any]:
-        """Return module meta and versions (blob included for requested version or 'latest')."""
+    def LIST(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
         with self._lock:
-            m = self._require_module(module_id)
-            versions = self._versions[module_id]
-            out_versions = []
-            include_vid = None
-            if version_id == "latest" or version_id is None:
-                include_vid = m.last_version_id
-            else:
-                include_vid = version_id
-            for v in versions:
-                entry = {
-                    "version_id": v.version_id,
-                    "created_at": v.created_at,
-                    "delta": v.delta,
-                    "size_bytes": v.size_bytes,
-                    "meta": v.meta,
-                }
-                if v.version_id == include_vid:
-                    entry["blob"] = v.blob
-                out_versions.append(entry)
-            return {
-                "module_id": m.module_id,
-                "sig": m.sig, "doc": m.doc, "tags": m.tags,
-                "created_at": m.created_at, "updated_at": m.updated_at,
-                "last_version_id": m.last_version_id,
-                "version_count": m.version_count,
-                "versions": out_versions,
-            }
+            tmp: List[Tuple[float, str, str]] = []  # (score, sig, doc)
+    
+            for sig, m in self._modules.items():
+                v = self._pick_winning_version(m)
+                if v is None:
+                    continue
+                tmp.append((v.score, m.sig, v.doc))
+    
+            tmp.sort(key=lambda t: t[0], reverse=True)
+    
+            items = [{"sig": sig, "doc": doc} for (_, sig, doc) in tmp]
+            if top_k:
+                items = items[:top_k]
+    
+            return {"success": True, "data": items}
 
-    def LIST(self, *, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Return brief cards for modules, most-recent first."""
+    def update_score(self, *, sig: str, version_id: str, delta: float) -> Dict[str, Any]:
         with self._lock:
-            items = []
-            for m in self._modules.values():
-                items.append({
-                    "module_id": m.module_id,
-                    "sig": m.sig, "doc": m.doc, "tags": m.tags,
-                    "created_at": m.created_at, "updated_at": m.updated_at,
-                    "last_version_id": m.last_version_id,
-                    "version_count": m.version_count,
-                })
-            items.sort(key=lambda x: x["updated_at"], reverse=True)
-            return items[:top_k] if top_k else items
-
-    def DELETE(self, *, module_id: str) -> None:
-        """Remove a module and its versions (does not rewrite history in the log)."""
-        with self._lock:
-            self._require_module(module_id)
-            del self._modules[module_id]
-            del self._versions[module_id]
-            self._append_log({"op":"DELETE","module_id":module_id})
-
-    # ---------- Optional: tool specs for “function calling” LLMs ----------
-    @staticmethod
-    def tool_specs() -> List[Dict[str, Any]]:
-        """Return JSON schemas describing the callable tools (OpenAI/Anthropic-style)."""
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "DEFINE",
-                    "description": "Create a new canvas module with an initial blob.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "sig": {"type":"string","nullable":True, "description":"Human-readable signature/name"},
-                            "doc": {"type":"string","nullable":True, "description":"Short description"},
-                            "blob": {"description":"Arbitrary JSON-serializable content"},
-                            "tags": {"type":"array","items":{"type":"string"}, "nullable":True},
-                            "meta": {"type":"object","nullable":True}
-                        },
-                        "required": ["blob"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "REVISE",
-                    "description": "Add a new version to an existing module (immutable lineage).",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "module_id": {"type":"string"},
-                            "blob": {"description":"New JSON-serializable blob"},
-                            "delta": {"type":"string","nullable":True},
-                            "meta": {"type":"object","nullable":True}
-                        },
-                        "required": ["module_id","blob"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "READ",
-                    "description": "Read module meta and versions; include blob for a specific version or 'latest'.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "module_id": {"type":"string"},
-                            "version_id": {"type":"string","nullable":True, "description":"Specific version_id or 'latest' (default: latest)"}
-                        },
-                        "required": ["module_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "LIST",
-                    "description": "List module cards, most recent first.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "top_k": {"type":"integer","nullable":True, "minimum":1, "maximum":100}
-                        }
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "DELETE",
-                    "description": "Delete a module and its versions.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "module_id": {"type":"string"}
-                        },
-                        "required": ["module_id"]
-                    }
-                }
-            }
-        ]
-
-    # ---------- Internals ----------
-    def _append_log(self, rec: Dict[str, Any]) -> None:
-        rec["_ts"] = _now_iso()
-        with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-    def _restore(self) -> None:
-        with self._lock, open(self.log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip(): continue
-                rec = json.loads(line)
-                op = rec.get("op")
-                if op == "DEFINE":
-                    m = ModuleMeta(**rec["module"])
-                    v = _dict2v(rec["version"])
-                    self._modules[m.module_id] = m
-                    self._versions[m.module_id] = [v]
-                elif op == "REVISE":
-                    mid = rec["module_id"]
-                    if mid in self._modules:
-                        v = _dict2v(rec["version"])
-                        self._versions[mid].append(v)
-                        m = self._modules[mid]
-                        m.updated_at = v.created_at
-                        m.last_version_id = v.version_id
-                        m.version_count += 1
-                elif op == "DELETE":
-                    mid = rec["module_id"]
-                    self._modules.pop(mid, None)
-                    self._versions.pop(mid, None)
-
-    def _require_module(self, module_id: str) -> ModuleMeta:
-        m = self._modules.get(module_id)
-        if not m:
-            raise KeyError(f"module_id not found: {module_id}")
-        return m
-
-def _sizeof(obj: Any) -> int:
-    try:
-        return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
-    except Exception:
-        return -1
-
-def _v2dict(v: Version) -> Dict[str, Any]:
-    d = asdict(v)
-    return d
-
-def _dict2v(d: Dict[str, Any]) -> Version:
-    return Version(**d)
+            m = self._modules.get(sig)
+            if m is None:
+                return {"success": False, "error": f"sig not found: {sig}"}
+    
+            for v in m.versions:
+                if v.version_id == version_id:
+                    try:
+                        v.score += delta
+                        self._save_version(sig, v)
+                        return {"success": True}
+                    except Exception as e:
+                        return {"success": False, "error": f"update_score failed: {e}"}
+    
+            return {"success": False, "error": f"version_id not found for sig={sig}"}
 
