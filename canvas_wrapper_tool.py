@@ -1,6 +1,6 @@
 # canvas_api.py
 """
-Public Canvas API.
+Canvas API.
 
 These functions expose a minimal persistent canvas for proposing,
 reading, and listing versioned modules. Scoring is system-controlled
@@ -13,7 +13,7 @@ from simple_canvas import Canvas
 _canvas = Canvas()
 
 
-def PROPOSE(*, sig: str, doc: str, blob: str) -> str:
+def PROPOSE(*, sig: str, doc: str, blob: str) -> Dict[str, Any]:
     """
     Propose a new module or a new version of an existing module.
 
@@ -26,7 +26,8 @@ def PROPOSE(*, sig: str, doc: str, blob: str) -> str:
         blob: The module body or content (code, text, proof, etc.).
 
     Returns:
-        The module signature under which the version was stored.
+        A dictionary with at least:
+            - success: bool indicating whether the proposal was stored
     """
     return _canvas.PROPOSE(sig=sig, doc=doc, blob=blob)
 
@@ -43,15 +44,16 @@ def READ(*, sig: str) -> Dict[str, Any]:
 
     Returns:
         A dictionary containing:
-            - sig: The module signature.
-            - vid: The selected version identifier.
-            - doc: Documentation string for the version.
-            - blob: The module body/content.
+            - success: bool
+            - data: dictionary with 
+                - sig: The module signature.
+                - doc: Documentation string for the version.
+                - blob: The module body/content.
     """
     return _canvas.READ(sig=sig)
 
 
-def LIST(*, top_k: int) -> List[Dict[str, Any]]:
+def LIST(*, top_k: int) -> Dict[str, Any]:
     """
     List module signatures ordered by their current winning score.
 
@@ -59,11 +61,23 @@ def LIST(*, top_k: int) -> List[Dict[str, Any]]:
     Optionally restricts the output to the top-k modules.
 
     Args:
-        top_k: Optional maximum number of modules to return.
+        top_k: Maximum number of modules to return.
 
     Returns:
-        A list of dictionaries, each containing:
-            - sig: Module signature.
-            - doc: Documentation of the current winning version.
+        A dictionary containing:
+            - success: bool
+            - data: list of dictionaries, each with:
+                - sig: Module signature
+                - doc: Documentation of the winning version
     """
     return _canvas.LIST(top_k=top_k)
+
+
+def update_score(*, sig: str, blob: str, delta: float) -> Dict[str, Any]:
+    """
+    System-only hook for applying selection pressure.
+
+    This must never be exposed to the model policy.
+    Called by verifier / RL loop after task evaluation.
+    """
+    return _canvas.update_score(sig=sig, blob=blob, delta=delta)
