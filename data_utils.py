@@ -62,9 +62,9 @@ def build_dataset_openr1_bigmath_oneshot(
     subsets=["level_5"],
     allow_sources: set | None = None,          # e.g., {"olympiads","aops_forum"}
     allow_domains: set | None = None,          # e.g., {"Number Theory","Algebra","Geometry","Combinatorics"}
-    max_train_examples: int = 126,            # “few good ones”
+    max_train_examples: int  | None = None,            # “few good ones”
     batch_size: int | None = None,
-    eval_holdout: int = 10,
+    eval_holdout: int = 0,
     seed: int = 42,
     tok=None,
 ):
