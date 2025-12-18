@@ -11,6 +11,7 @@ from rewards import small_eval_oneshot, reward_bigmath_accuracy
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
 from canvas_wrapper_tool import PROPOSE, READ, LIST
+from trl.chat_template_utils import qwen3_chat_template, qwen3_schema
 # -------------------------------
 # Training (per rank)
 # -------------------------------
@@ -27,13 +28,14 @@ def train(args):
     # Tokenizer
     tok = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
     tok.padding_side = "left"
+    tok.chat_template = qwen3_chat_template
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
     # Dataset  (pass tok, and keep RLVR builder)
     HARD_SUBSETS = ["level_4"]
     MAX_TRAIN_EX = 4
-    EVAL_HOLDOUT = 2
+    EVAL_HOLDOUT = 1
     train_ds, eval_ds = build_dataset_openr1_bigmath_oneshot(
         subsets=HARD_SUBSETS,
         max_train_examples=MAX_TRAIN_EX,
@@ -71,7 +73,8 @@ def train(args):
         vllm_server_host=args.vllm_host,
         vllm_server_port=args.vllm_port,
         generation_batch_size=args.generation_batch_size,
-        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+        vllm_max_model_length=args.max_prompt_length+args.max_completion_length
     )
 
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else None)
