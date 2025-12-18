@@ -10,7 +10,7 @@ from data_utils import build_dataset_openr1_bigmath_oneshot
 from rewards import small_eval_oneshot, reward_bigmath_accuracy
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
-from canvas_api import PROPOSE, READ, LIST
+from canvas_wrapper_tool import PROPOSE, READ, LIST
 # -------------------------------
 # Training (per rank)
 # -------------------------------
