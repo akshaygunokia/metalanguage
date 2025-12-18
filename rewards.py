@@ -11,7 +11,7 @@ import math
 from typing import Optional, List, Any, Dict
 from math_verify import LatexExtractionConfig, parse, verify
 from latex2sympy2_extended import NormalizationConfig
-from canvas_api import update_score
+from canvas_wrapper_tool import update_score
 # -------------------------------
 # Reward functions
 # -------------------------------
