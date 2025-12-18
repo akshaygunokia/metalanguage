@@ -12,8 +12,10 @@ from simple_canvas import Canvas
 
 _canvas = Canvas()
 
+def _err(msg: str) -> Dict[str, Any]:
+    return {"success": False, "error": msg}
 
-def PROPOSE(*, sig: str, doc: str, blob: str) -> Dict[str, Any]:
+def PROPOSE(*, sig: str = "", doc: str = "", blob: str = "") -> Dict[str, Any]:
     """
     Propose a new module or a new version of an existing module.
 
@@ -29,10 +31,18 @@ def PROPOSE(*, sig: str, doc: str, blob: str) -> Dict[str, Any]:
         A dictionary with at least:
             - success: bool indicating whether the proposal was stored
     """
-    return _canvas.PROPOSE(sig=sig, doc=doc, blob=blob)
+    if not isinstance(sig, str) or not sig.strip():
+        return _err("PROPOSE: `sig` must be a non-empty string")
+    if not isinstance(doc, str):
+        doc = str(doc)
+    if not isinstance(blob, str):
+        blob = str(blob)
+    try:
+        return _canvas.PROPOSE(sig=sig.strip(), doc=doc, blob=blob)
+    except Exception as e:
+        return _err(f"PROPOSE failed: {e}")
 
-
-def READ(*, sig: str) -> Dict[str, Any]:
+def READ(*, sig: Optional[str] = None) -> Dict[str, Any]:
     """
     Read the currently winning version of a module.
 
@@ -50,10 +60,17 @@ def READ(*, sig: str) -> Dict[str, Any]:
                 - doc: Documentation string for the version.
                 - blob: The module body/content.
     """
-    return _canvas.READ(sig=sig)
+    if sig is None:
+        return _err("READ: missing `sig`")
+    if not isinstance(sig, str) or not sig.strip():
+        return _err("READ: `sig` must be a non-empty string")
+    try:
+        return _canvas.READ(sig=sig.strip())
+    except Exception as e:
+        return _err(f"READ failed: {e}")
 
 
-def LIST(*, top_k: int) -> Dict[str, Any]:
+def LIST(*, top_k: int = 8) -> Dict[str, Any]:
     """
     List module signatures ordered by their current winning score.
 
@@ -70,7 +87,18 @@ def LIST(*, top_k: int) -> Dict[str, Any]:
                 - sig: Module signature
                 - doc: Documentation of the winning version
     """
-    return _canvas.LIST(top_k=top_k)
+    try:
+        # allow missing/None, strings, etc.
+        if top_k is None:
+            top_k = 8
+        top_k = int(top_k)
+        if top_k <= 0:
+            top_k = 8
+        if top_k > 64:
+            top_k = 64
+        return _canvas.LIST(top_k=top_k)
+    except Exception as e:
+        return _err(f"LIST failed: {e}")
 
 
 def update_score(*, sig: str, blob: str, delta: float) -> Dict[str, Any]:
