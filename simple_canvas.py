@@ -14,6 +14,8 @@ import random
 import json, os
 from pathlib import Path
 import hashlib
+from contextlib import contextmanager
+import fcntl
 
 def _sig_id(sig: str) -> str:
     return hashlib.sha256(sig.encode("utf-8")).hexdigest()[:24]  # short but safe
@@ -23,6 +25,19 @@ def _ver_id(blob: str) -> str:
 
 def _ensure(p: Path):
     p.mkdir(parents=True, exist_ok=True)
+
+def _atomic_json_write(path: Path, obj: Dict[str, Any]):
+    """
+    Atomic write: write to temp file in same directory, then os.replace().
+    Ensures readers never observe partially-written JSON.
+    """
+    _ensure(path.parent)
+    tmp = path.with_name(f".{path.name}.tmp-{uuid4().hex}")
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 @dataclass
 class Version:
@@ -41,15 +56,45 @@ class Canvas:
         self._lock = threading.RLock()
         self._modules: Dict[str, Module] = {}
         self._root = Path(root)
+        _ensure(self._root)
+        self._global_lock_path = self._root / ".lock"
         self.load()
+
+    @contextmanager
+    def _fs_lock(self, *, shared: bool, sig: Optional[str] = None, path: Optional[Path] = None):
+        """
+        Cross-process flock() lock.
+        - If sig is provided, lock is module-scoped: canvas/modules/<sig_hash>/.lock
+        - Else uses a global lock: canvas/.lock
+        """
+        # Best-effort fallback: no cross-process locking available.
+        if fcntl is None:
+            yield
+            return
+
+        if path is not None:
+            lock_path = path
+        elif sig is not None:
+            lock_path = self._mod_dir(sig) / ".lock"
+        else:
+            lock_path = self._global_lock_path
+        _ensure(lock_path.parent)
+        with open(lock_path, "a+") as lf:
+            try:
+                fcntl.flock(lf.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+                yield
+            finally:
+                try:
+                    fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
 
     def _mod_dir(self, sig: str) -> Path:
         return self._root / "modules" / _sig_id(sig)
 
     def _save_module_meta(self, sig: str):
-        _ensure(self._mod_dir(sig))
-        with open(self._mod_dir(sig) / "module.json", "w") as f:
-            json.dump({"sig": sig}, f, indent=2, ensure_ascii=False)
+        meta_path = self._mod_dir(sig) / "module.json"
+        _atomic_json_write(meta_path, {"sig": sig})
 
     def _ver_dir(self, sig: str) -> Path:
         return self._mod_dir(sig) / "versions"
@@ -58,45 +103,92 @@ class Canvas:
         return self._ver_dir(sig) / f"{vid}.json"
 
     def load(self):
+        """
+        Load modules from disk into the in-memory cache.
+        """
+        # Full scan
         self._modules.clear()
-        mods = self._root / "modules"
-        if not mods.exists():
+        mods_dir = self._root / "modules"
+        if not mods_dir.exists():
             return
 
-        for md in mods.iterdir():
+        for md in mods_dir.iterdir():
             if not md.is_dir():
                 continue
+            self._load_one_by_path(md)
 
+
+    def _load_one_by_sig(self, sig: str) -> None:
+        """Load exactly one module into cache by signature."""
+        sig = str(sig).strip()
+        if not sig:
+            return
+
+        md = self._mod_dir(sig)
+        if not md.exists() or not md.is_dir():
+            # Remove stale cache entry if present
+            self._modules.pop(sig, None)
+            return
+
+        self._load_one_by_path(md, fallback_sig=sig)
+
+
+    def _load_one_by_path(self, md: Path, fallback_sig: Optional[str] = None) -> None:
+        """
+        Load one module directory (canvas/modules/<sig_hash>) into cache.
+
+        Args:
+            md: Module directory path.
+            fallback_sig: If meta is missing/partial, allow fallback for cache eviction.
+        """
+        lock_path = md / ".lock"
+        with self._lock, self._fs_lock(shared=False, path=lock_path):
             meta = md / "module.json"
             if not meta.exists():
-                continue
-            with open(meta) as f:
-                sig = json.load(f)["sig"]
-            versions = []
+                if fallback_sig:
+                    self._modules.pop(fallback_sig, None)
+                return
+
+            try:
+                with open(meta) as f:
+                    disk_sig = json.load(f).get("sig") or fallback_sig
+            except Exception:
+                disk_sig = fallback_sig
+
+            if not disk_sig:
+                return
+
+            versions: List[Version] = []
             vdir = md / "versions"
             if vdir.exists():
                 for vf in vdir.glob("*.json"):
-                    with open(vf) as f:
-                        d = json.load(f)
-                    versions.append(Version(
-                        version_id=d["version_id"],
-                        doc=d["doc"],
-                        blob=d["blob"],
-                        score=d.get("score", 0.0),
-                    ))
+                    try:
+                        with open(vf) as f:
+                            d = json.load(f)
+                        versions.append(Version(
+                            version_id=d["version_id"],
+                            doc=d["doc"],
+                            blob=d["blob"],
+                            score=d.get("score", 0.0),
+                        ))
+                    except Exception:
+                        # Corrupt/partial file; ignore and continue
+                        continue
 
             if versions:
-                self._modules[sig] = Module(sig=sig, versions=versions)
-
+                self._modules[disk_sig] = Module(sig=disk_sig, versions=versions)
+            else:
+                # No versions -> drop from cache
+                self._modules.pop(disk_sig, None)
+    
     def _save_version(self, sig: str, v: Version):
-        _ensure(self._ver_dir(sig))
-        with open(self._ver_path(sig, v.version_id), "w") as f:
-            json.dump({
-                "version_id": v.version_id,
-                "doc": v.doc,
-                "blob": v.blob,
-                "score": v.score,
-            }, f, indent=2, ensure_ascii=False)
+        path = self._ver_path(sig, v.version_id)
+        _atomic_json_write(path, {
+            "version_id": v.version_id,
+            "doc": v.doc,
+            "blob": v.blob,
+            "score": v.score,
+        })
 
     def _pick_winning_version(self, module: Module) -> Optional[Version]:
         if not module.versions:
@@ -107,7 +199,8 @@ class Canvas:
         return random.choice(top)
 
     def PROPOSE(self, *, sig: str, doc: str, blob: str) -> Dict[str, Any]:
-        with self._lock:
+        with self._lock, self._fs_lock(shared=False, sig=sig):
+            self._load_one_by_sig(sig)
             try:
                 version_id = _ver_id(blob)
                 v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
@@ -128,6 +221,7 @@ class Canvas:
 
     def READ(self, *, sig: str) -> Dict[str, Any]:
         with self._lock:
+            self._load_one_by_sig(sig)
             m = self._modules.get(sig)
             if m is None or not m.versions:
                 return {"success": False, "error": f"sig not found: {sig}"}
@@ -138,6 +232,7 @@ class Canvas:
 
     def LIST(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
         with self._lock:
+            self.load()
             tmp: List[Tuple[float, str, str]] = []  # (score, sig, doc)
     
             for sig, m in self._modules.items():
@@ -155,7 +250,8 @@ class Canvas:
             return {"success": True, "data": items}
 
     def update_score(self, *, sig: str, blob: str, delta: float) -> Dict[str, Any]:
-        with self._lock:
+        with self._lock, self._fs_lock(shared=False, sig=sig):
+            self._load_one_by_sig(sig)
             m = self._modules.get(sig)
             if m is None:
                 return {"success": False, "error": f"sig not found: {sig}"}
