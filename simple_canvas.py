@@ -57,29 +57,21 @@ class Canvas:
         self._modules: Dict[str, Module] = {}
         self._root = Path(root)
         _ensure(self._root)
-        self._global_lock_path = self._root / ".lock"
+        self._lock_path = self._root / ".lock"
         self.load()
 
     @contextmanager
-    def _fs_lock(self, *, shared: bool, sig: Optional[str] = None, path: Optional[Path] = None):
+    def _fs_lock(self, *, shared: bool):
         """
-        Cross-process flock() lock.
-        - If sig is provided, lock is module-scoped: canvas/modules/<sig_hash>/.lock
-        - Else uses a global lock: canvas/.lock
+        Cross-process lock for multi-GPU / multi-process training.
+        Uses flock() on a single global lock file under the canvas root.
         """
-        # Best-effort fallback: no cross-process locking available.
         if fcntl is None:
+            # Best-effort fallback: no cross-process locking available.
             yield
             return
-
-        if path is not None:
-            lock_path = path
-        elif sig is not None:
-            lock_path = self._mod_dir(sig) / ".lock"
-        else:
-            lock_path = self._global_lock_path
-        _ensure(lock_path.parent)
-        with open(lock_path, "a+") as lf:
+        _ensure(self._root)
+        with open(self._lock_path, "a+") as lf:
             try:
                 fcntl.flock(lf.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
                 yield
@@ -103,84 +95,36 @@ class Canvas:
         return self._ver_dir(sig) / f"{vid}.json"
 
     def load(self):
-        """
-        Load modules from disk into the in-memory cache.
-        """
-        # Full scan
         self._modules.clear()
-        mods_dir = self._root / "modules"
-        if not mods_dir.exists():
+        mods = self._root / "modules"
+        if not mods.exists():
             return
 
-        for md in mods_dir.iterdir():
+        for md in mods.iterdir():
             if not md.is_dir():
                 continue
-            self._load_one_by_path(md)
 
-
-    def _load_one_by_sig(self, sig: str) -> None:
-        """Load exactly one module into cache by signature."""
-        sig = str(sig).strip()
-        if not sig:
-            return
-
-        md = self._mod_dir(sig)
-        if not md.exists() or not md.is_dir():
-            # Remove stale cache entry if present
-            self._modules.pop(sig, None)
-            return
-
-        self._load_one_by_path(md, fallback_sig=sig)
-
-
-    def _load_one_by_path(self, md: Path, fallback_sig: Optional[str] = None) -> None:
-        """
-        Load one module directory (canvas/modules/<sig_hash>) into cache.
-
-        Args:
-            md: Module directory path.
-            fallback_sig: If meta is missing/partial, allow fallback for cache eviction.
-        """
-        lock_path = md / ".lock"
-        with self._lock, self._fs_lock(shared=False, path=lock_path):
             meta = md / "module.json"
             if not meta.exists():
-                if fallback_sig:
-                    self._modules.pop(fallback_sig, None)
-                return
-
-            try:
-                with open(meta) as f:
-                    disk_sig = json.load(f).get("sig") or fallback_sig
-            except Exception:
-                disk_sig = fallback_sig
-
-            if not disk_sig:
-                return
-
-            versions: List[Version] = []
+                continue
+            with open(meta) as f:
+                sig = json.load(f)["sig"]
+            versions = []
             vdir = md / "versions"
             if vdir.exists():
                 for vf in vdir.glob("*.json"):
-                    try:
-                        with open(vf) as f:
-                            d = json.load(f)
-                        versions.append(Version(
-                            version_id=d["version_id"],
-                            doc=d["doc"],
-                            blob=d["blob"],
-                            score=d.get("score", 0.0),
-                        ))
-                    except Exception:
-                        # Corrupt/partial file; ignore and continue
-                        continue
+                    with open(vf) as f:
+                        d = json.load(f)
+                    versions.append(Version(
+                        version_id=d["version_id"],
+                        doc=d["doc"],
+                        blob=d["blob"],
+                        score=d.get("score", 0.0),
+                    ))
 
             if versions:
-                self._modules[disk_sig] = Module(sig=disk_sig, versions=versions)
-            else:
-                # No versions -> drop from cache
-                self._modules.pop(disk_sig, None)
-    
+                self._modules[sig] = Module(sig=sig, versions=versions)
+
     def _save_version(self, sig: str, v: Version):
         path = self._ver_path(sig, v.version_id)
         _atomic_json_write(path, {
@@ -199,8 +143,7 @@ class Canvas:
         return random.choice(top)
 
     def PROPOSE(self, *, sig: str, doc: str, blob: str) -> Dict[str, Any]:
-        with self._lock, self._fs_lock(shared=False, sig=sig):
-            self._load_one_by_sig(sig)
+        with self._lock, self._fs_lock(shared=False):
             try:
                 version_id = _ver_id(blob)
                 v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
@@ -220,8 +163,8 @@ class Canvas:
                 return {"success": False, "error": f"PROPOSE failed: {e}"}
 
     def READ(self, *, sig: str) -> Dict[str, Any]:
-        with self._lock:
-            self._load_one_by_sig(sig)
+        with self._lock, self._fs_lock(shared=True):
+            self.load()
             m = self._modules.get(sig)
             if m is None or not m.versions:
                 return {"success": False, "error": f"sig not found: {sig}"}
@@ -231,7 +174,7 @@ class Canvas:
             return {"success": True, "data": {"sig": m.sig, "doc": version.doc, "blob": version.blob}}
 
     def LIST(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
-        with self._lock:
+        with self._lock, self._fs_lock(shared=True):
             self.load()
             tmp: List[Tuple[float, str, str]] = []  # (score, sig, doc)
     
@@ -250,8 +193,8 @@ class Canvas:
             return {"success": True, "data": items}
 
     def update_score(self, *, sig: str, blob: str, delta: float) -> Dict[str, Any]:
-        with self._lock, self._fs_lock(shared=False, sig=sig):
-            self._load_one_by_sig(sig)
+        with self._lock, self._fs_lock(shared=False):
+            self.load()
             m = self._modules.get(sig)
             if m is None:
                 return {"success": False, "error": f"sig not found: {sig}"}
