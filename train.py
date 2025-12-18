@@ -29,6 +29,7 @@ def train(args):
     tok = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
     tok.padding_side = "left"
     tok.chat_template = qwen3_chat_template
+    tok.response_schema = qwen3_schema
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
