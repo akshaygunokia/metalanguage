@@ -11,7 +11,7 @@ from rewards import small_eval_oneshot, reward_bigmath_accuracy
 from bench_eval import EvalchemyCallback
 from bench_eval import run_evalchemy
 from canvas_wrapper_tool import PROPOSE, READ, LIST
-from trl.chat_template_utils import qwen3_chat_template, qwen3_schema
+from train_util import qwen3_chat_template, qwen3_schema
 # -------------------------------
 # Training (per rank)
 # -------------------------------
