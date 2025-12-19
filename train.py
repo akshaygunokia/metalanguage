@@ -34,9 +34,13 @@ def train(args):
         tok.pad_token = tok.eos_token
 
     # Dataset  (pass tok, and keep RLVR builder)
-    HARD_SUBSETS = ["level_3_4_5"]
+    HARD_SUBSETS = ["level_3"]
+    MAX_TRAIN_EX = 1024
+    EVAL_HOLDOUT = 0
     train_ds, eval_ds = build_dataset_openr1_bigmath_oneshot(
         subsets=HARD_SUBSETS,
+        max_train_examples=MAX_TRAIN_EX,
+        eval_holdout=EVAL_HOLDOUT,
         seed=args.seed,
         tok=tok
     )
