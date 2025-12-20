@@ -83,7 +83,6 @@ def build_verl_parquet_openr1_bigmath_oneshot(
             return {
                 "data_source": data_source,
                 "prompt": [
-                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 "ability": ability,
