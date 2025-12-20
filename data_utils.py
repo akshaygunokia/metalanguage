@@ -55,12 +55,11 @@ def build_verl_parquet_openr1_bigmath_oneshot(
     merged = load_dataset("open-r1/Big-Math-RL-Verified-Processed", subset, split="train")
     split = merged.train_test_split(test_size=test_holdout, seed=seed, shuffle=True)
     train_ds, test_ds = split["train"], split["test"]
-    train_ds = train_ds.shuffle()
+    train_ds = train_ds.shuffle(seed=seed)
     if max_unique_prompts and len(train_ds) > max_unique_prompts:
         train_ds = train_ds.select(range(max_unique_prompts))
 
     if max_train_size is not None:
-        from random import choices
         n = len(train_ds)
         if n == max_train_size:
             pass  # already fine
