@@ -45,20 +45,32 @@ Output
 def build_verl_parquet_openr1_bigmath_oneshot(
     local_save_dir,
     subset="level_5",
-    test_holdout=0,              # int (count)
+    max_unique_prompts=1024,
+    max_train_size=1024,
+    test_holdout=1,              # int (count)
     seed=42,
     instruction_suffix=None,     # optional extra instruction appended to user content
 ):
     os.makedirs(local_save_dir, exist_ok=True)
     merged = load_dataset("open-r1/Big-Math-RL-Verified-Processed", subset, split="train")
+    split = merged.train_test_split(test_size=test_holdout, seed=seed, shuffle=True)
+    train_ds, test_ds = split["train"], split["test"]
+    train_ds = train_ds.shuffle()
+    if max_unique_prompts and len(train_ds) > max_unique_prompts:
+        train_ds = train_ds.select(range(max_unique_prompts))
 
-    # 3) Split holdout (count-based)
-    if test_holdout and len(merged) > test_holdout:
-        split = merged.train_test_split(test_size=test_holdout, seed=seed, shuffle=True)
-        train_ds, test_ds = split["train"], split["test"]
-    else:
-        train_ds, test_ds = merged, None
-
+    if max_train_size is not None:
+        from random import choices
+        n = len(train_ds)
+        if n == max_train_size:
+            pass  # already fine
+        elif n < max_train_size:
+            repeats, remainder = divmod(max_train_size, n)
+            idx = list(range(n)) * repeats
+            idx += list(range(remainder))
+            train_ds = train_ds.select(idx)
+        else:
+            train_ds = train_ds.select(range(max_train_size))
     # 4) Map into VeRL schema (the important part)
     data_source = "open-r1/Big-Math-RL-Verified-Processed"
     ability = "math"
