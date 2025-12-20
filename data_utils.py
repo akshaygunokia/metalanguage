@@ -3,7 +3,7 @@
 import os, re, json, argparse, sys, subprocess, glob, time, datetime
 import torch
 import hashlib
-from datasets import load_dataset
+from datasets import load_dataset, concatenate_datasets
 
 system_prompt = '''You are an assistant that can use external tools and a persistent module canvas.
 
@@ -42,6 +42,70 @@ Output
 # -------------------------------
 # Data
 # -------------------------------
+def build_verl_parquet_openr1_bigmath_oneshot(
+    local_save_dir,
+    subset="level_5",
+    test_holdout=0,              # int (count)
+    seed=42,
+    instruction_suffix=None,     # optional extra instruction appended to user content
+):
+    os.makedirs(local_save_dir, exist_ok=True)
+    merged = load_dataset("open-r1/Big-Math-RL-Verified-Processed", subset, split="train")
+
+    # 3) Split holdout (count-based)
+    if test_holdout and len(merged) > test_holdout:
+        split = merged.train_test_split(test_size=test_holdout, seed=seed, shuffle=True)
+        train_ds, test_ds = split["train"], split["test"]
+    else:
+        train_ds, test_ds = merged, None
+
+    # 4) Map into VeRL schema (the important part)
+    data_source = "open-r1/Big-Math-RL-Verified-Processed"
+    ability = "math"
+
+    def make_map_fn(split_name):
+        def process_fn(example, idx):
+            user_prompt = example.get("prompt", "")
+            if instruction_suffix:
+                user_prompt = f"{user_prompt}\n\n{instruction_suffix}"
+
+            return {
+                "data_source": data_source,
+                "prompt": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "ability": ability,
+                "reward_model": {
+                    "style": "rule",
+                    "ground_truth": example.get("solution"),
+                },
+                "extra_info": {
+                    "split": split_name,
+                    "index": idx,
+                    "source": example.get("source"),
+                    "domain": example.get("domain"),
+                    "difficulty": example.get("llama8b_solve_rate")
+                },
+            }
+        return process_fn
+
+    train_ds = train_ds.map(make_map_fn("train"), with_indices=True, remove_columns=train_ds.column_names)
+    if test_ds is not None:
+        test_ds = test_ds.map(make_map_fn("test"), with_indices=True, remove_columns=test_ds.column_names)
+
+    # 5) Write parquet files VeRL expects
+    train_path = os.path.join(local_save_dir, "train.parquet")
+    train_ds.to_parquet(train_path)
+
+    test_path = None
+    if test_ds is not None:
+        test_path = os.path.join(local_save_dir, "test.parquet")
+        test_ds.to_parquet(test_path)
+
+    return train_path, test_path
+
+
 def build_dataset(dataset_slug: str, add_answer_tag: bool, eval_holdout: int):
     ds = load_dataset(dataset_slug, split="train")
     if add_answer_tag:
