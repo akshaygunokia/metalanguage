@@ -9,9 +9,11 @@ import hashlib
 from sympy import nsimplify, simplify, Eq
 import math
 from typing import Optional, List, Any, Dict
-from math_verify import LatexExtractionConfig, parse, verify
+from math_verify import LatexExtractionConfig, parse, verify, math_metric, ExprExtractionConfig
 from latex2sympy2_extended import NormalizationConfig
 from canvas_wrapper_tool import update_score
+from bench_eval import compute_score_aime, compute_score_gpqa
+
 # -------------------------------
 # Reward functions
 # -------------------------------
@@ -39,6 +41,85 @@ def reward_exact(prompts, completions, completion_ids, gold=None, answer=None, *
         pred = m.group(1) if m else ""
         rewards.append(1.0 if pred == target else -1.0)
     return rewards
+
+def verl_reward_func(data_source, solution_str, ground_truth, extra_info=None):
+    if data_source in ["Maxwell-Jia/AIME_2024", "opencompass/cnmo2024_en", "opencompass/cnmo2024_zh"]:
+        return compute_score_aime(solution_str, ground_truth)
+    elif data_source == "Idavidrein/gpqa":
+        return compute_score_gpqa(solution_str, ground_truth)
+    elif data_source == "open-r1/Big-Math-RL-Verified-Processed":
+        return compute_score_bigmath(solution_str, ground_truth)
+    else:
+        raise NotImplementedError
+    
+
+def compute_score_bigmath(solution_str, ground_truth):
+    """
+    Compute function implementing Big-Math 'accuracy via symbolic equivalence'.
+
+    Parameters
+    ----------
+    solution_str : str, Decoded model completion text (flat string).
+    ground_truth : Any, Gold solution/answer. Typically a string; sometimes nested (dict).
+
+    Returns
+    -------
+    reward: float
+    """
+
+    # ---- 1) Get gold solution string (ground_truth might be str or dict-like) ----
+    if isinstance(ground_truth, str):
+        gold_text = ground_truth
+    elif isinstance(ground_truth, dict):
+        # common patterns; adjust to your dataset schema
+        gold_text = (
+            ground_truth.get("solution")
+            or ground_truth.get("ground_truth")
+            or ground_truth.get("answer")
+            or ""
+        )
+    else:
+        gold_text = str(ground_truth) if ground_truth is not None else ""
+
+    if not gold_text:
+        return 0.0
+
+    model_text = solution_str
+
+    gold_parsed = parse(gold_text, extraction_mode="first_match", parsing_timeout=None)
+    if not gold_parsed:
+        return 0.0
+
+    answer_parsed = parse(
+        model_text,
+        extraction_config=[
+            LatexExtractionConfig(
+                normalization_config=NormalizationConfig(
+                    nits=False,
+                    malformed_operators=False,
+                    basic_latex=True,
+                    boxed="all",
+                    units=True,
+                ),
+                boxed_match_priority=0,
+                try_extract_without_anchor=False,
+            )
+        ],
+        extraction_mode="first_match",
+        parsing_timeout=None
+    )
+
+    if not answer_parsed:
+        return 0.0
+
+    # ---- 5) Verify symbolic equivalence ----
+    try:
+        reward = float(verify(gold_parsed, answer_parsed, timeout_seconds=None))
+    except Exception as e:
+        print(f"Big Math verify failed: {e}")
+        return 0.0
+
+    return reward
 
 def reward_bigmath_accuracy(
     prompts: List[Any],
