@@ -4,117 +4,175 @@ import os, re, json, argparse, sys, subprocess, glob, time, datetime
 import torch
 import hashlib
 from datasets import load_dataset, concatenate_datasets
+from functools import partial
 
-system_prompt = '''You are an assistant that can use external tools and a persistent module canvas.
+system_prompt = '''You are an assistant that can use external tools'''
 
-Goal
-- Produce correct final answers.
-- When helpful, build a reusable library of small, general modules that can speed up future solutions.
+def example_map_fn(example, idx, process_fn, data_source, ability, split):
+    question, solution = process_fn(example)
+    data = {
+        "data_source": data_source,
+        "prompt": [{"role": "user", "content": question}],
+        "ability": ability,
+        "reward_model": {"style": "rule", "ground_truth": solution},
+        "extra_info": {"split": split, "index": idx},
+    }
+    return data
 
-Canvas tools (persistent across tasks)
-- LIST(top_k): show existing module signatures and short docs.
-- READ(sig): read the current best version of a module (doc + blob).
-- PROPOSE(sig, doc, blob): propose a new reusable module or new version of an existing one.
+def build_verl_parquet_openr1_bigmath_oneshot(subset="level_5", max_unique_prompts=1024, max_train_size=1024, seed=42):
+    data_source = "open-r1/Big-Math-RL-Verified-Processed"
+    ability = "math"
 
-How to use the canvas
-- Treat the canvas as a shared library, not a scratchpad.
-- Prefer reusing existing modules over re-deriving the same idea.
-- If a module seems relevant, you may LIST then READ it and apply it.
-- If you discover a method/pattern/lemma/procedure that is likely to recur across problems, you may PROPOSE a module capturing it.
-- It is acceptable to propose a module even if it is only a partial helper, as long as it is broadly reusable.
-- Do not propose modules that are trivial, purely problem-specific, or duplicate an existing module with no meaningful improvement.
-- Keep proposed modules concise, with clear documentation of what they do and when to use them.
+    train_ds = load_dataset(data_source, subset, split="train").shuffle(seed=seed)
 
-Quality bar for proposals
-- The signature should be stable and descriptive.
-- The doc should explain purpose, inputs/outputs (or assumptions/conclusions), and a short usage note.
-- The blob should be a compact, general artifact (e.g., a function, lemma sketch, algorithm outline, transformation rule, checklist).
-
-General behavior
-- Use tools only when they provide clear value.
-- Do not mention internal scoring or training details.
-- If you do not use the canvas, solve normally and provide the best final answer you can.
-
-Output
-- Provide the final solution clearly and directly.
-'''
-
-# -------------------------------
-# Data
-# -------------------------------
-def build_verl_parquet_openr1_bigmath_oneshot(
-    local_save_dir,
-    subset="level_5",
-    max_unique_prompts=1024,
-    max_train_size=1024,
-    test_holdout=1,              # int (count)
-    seed=42,
-    instruction_suffix=None,     # optional extra instruction appended to user content
-):
-    os.makedirs(local_save_dir, exist_ok=True)
-    merged = load_dataset("open-r1/Big-Math-RL-Verified-Processed", subset, split="train")
-    split = merged.train_test_split(test_size=test_holdout, seed=seed, shuffle=True)
-    train_ds, test_ds = split["train"], split["test"]
-    train_ds = train_ds.shuffle(seed=seed)
     if max_unique_prompts and len(train_ds) > max_unique_prompts:
         train_ds = train_ds.select(range(max_unique_prompts))
 
     if max_train_size is not None:
         n = len(train_ds)
-        if n == max_train_size:
-            pass  # already fine
-        elif n < max_train_size:
+        if n < max_train_size:
             repeats, remainder = divmod(max_train_size, n)
             idx = list(range(n)) * repeats
             idx += list(range(remainder))
             train_ds = train_ds.select(idx)
         else:
             train_ds = train_ds.select(range(max_train_size))
-    # 4) Map into VeRL schema (the important part)
-    data_source = "open-r1/Big-Math-RL-Verified-Processed"
-    ability = "math"
 
-    def make_map_fn(split_name):
-        def process_fn(example, idx):
-            user_prompt = example.get("prompt", "")
-            if instruction_suffix:
-                user_prompt = f"{user_prompt}\n\n{instruction_suffix}"
+    def process_openr1_bigmath(example):
+        user_prompt = example.get("prompt", "")
+        return user_prompt, example.get("solution")
 
-            return {
-                "data_source": data_source,
-                "prompt": [
-                    {"role": "user", "content": user_prompt},
-                ],
-                "ability": ability,
-                "reward_model": {
-                    "style": "rule",
-                    "ground_truth": example.get("solution"),
-                },
-                "extra_info": {
-                    "split": split_name,
-                    "index": idx,
-                    "source": example.get("source"),
-                    "domain": example.get("domain"),
-                    "difficulty": example.get("llama8b_solve_rate")
-                },
-            }
-        return process_fn
+    train_map_fn = partial(
+        example_map_fn, process_fn=process_openr1_bigmath, data_source=data_source, ability=ability, split="train"
+    )
+    train_ds = train_ds.map(train_map_fn, with_indices=True, remove_columns=train_ds.column_names)
+    return train_ds
 
-    train_ds = train_ds.map(make_map_fn("train"), with_indices=True, remove_columns=train_ds.column_names)
-    if test_ds is not None:
-        test_ds = test_ds.map(make_map_fn("test"), with_indices=True, remove_columns=test_ds.column_names)
+def build_aime2024_dataset():
+    def process_aime2024(example):
+        return example["Problem"], str(example["Answer"])
 
-    # 5) Write parquet files VeRL expects
-    train_path = os.path.join(local_save_dir, "train.parquet")
-    train_ds.to_parquet(train_path)
+    data_source = "Maxwell-Jia/AIME_2024"
+    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
+    dataset = load_dataset(data_source, split="train")
+    map_fn = partial(
+        example_map_fn, process_fn=process_aime2024, data_source=data_source, ability="Math", split="test"
+    )
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
+    return dataset
 
-    test_path = None
-    if test_ds is not None:
-        test_path = os.path.join(local_save_dir, "test.parquet")
-        test_ds.to_parquet(test_path)
 
-    return train_path, test_path
+def build_gpqa_diamond_dataset():
+    import random
 
+    GPQA_QUERY_TEMPLATE = (
+        "Answer the following multiple choice question. The last line of your response should be of the following "
+        "format: 'Answer: $LETTER' (without quotes) where LETTER is one of ABCD. Think step by step before "
+        "answering.\n\n{Question}\n\nA) {A}\nB) {B}\nC) {C}\nD) {D}"
+    )
+
+    def process_gpqa_diamond(example):
+        choices = [example["Incorrect Answer 1"], example["Incorrect Answer 2"], example["Incorrect Answer 3"]]
+        random.shuffle(choices)
+        gold_index = random.randint(0, 3)
+        choices.insert(gold_index, example["Correct Answer"])
+        query_prompt = GPQA_QUERY_TEMPLATE.format(
+            A=choices[0], B=choices[1], C=choices[2], D=choices[3], Question=example["Question"]
+        )
+        gold_choice = "ABCD"[gold_index]
+        return query_prompt, gold_choice
+
+    data_source = "Idavidrein/gpqa"
+    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
+
+    dataset = load_dataset(data_source, "gpqa_diamond", split="train")
+    map_fn = partial(
+        example_map_fn, process_fn=process_gpqa_diamond, data_source=data_source, ability="Science", split="test"
+    )
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
+    return dataset
+
+
+def build_cnmo2024_dataset():
+    def process_cnmo2024(example):
+        return example["question"], example["answer"]
+
+    data_source = "opencompass/LiveMathBench"
+    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
+
+    dataset_en = load_dataset(data_source, "v202412_CNMO_en", split="test")
+    map_fn_en = partial(
+        example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_en", ability="Math", split="test"
+    )
+    dataset_en = dataset_en.map(map_fn_en, with_indices=True, remove_columns=dataset_en.column_names)
+
+    dataset_zh = load_dataset(data_source, "v202412_CNMO_cn", split="test")
+    map_fn_zh = partial(
+        example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_zh", ability="Math", split="test"
+    )
+    dataset_zh = dataset_zh.map(map_fn_zh, with_indices=True, remove_columns=dataset_zh.column_names)
+
+    dataset = concatenate_datasets([dataset_en, dataset_zh])
+    return dataset
+
+
+def build_livecodebench_dataset():
+    import base64
+    import json
+    import pickle
+    import zlib
+
+    def process_livecodebench(example):
+        # Construct Query Prompt
+        # From https://github.com/LiveCodeBench/LiveCodeBench/blob/998c52d394b836f15fff3b9a29866191108ff81b/lcb_runner/prompts/code_generation.py#L140
+        query_prompt = (
+            f"You will be given a question (problem specification) and will generate a correct Python program "
+            f"that matches the specification and passes all tests.\n\nQuestion: {example['question_content']}\n\n"
+        )
+        if example["starter_code"]:
+            query_prompt += (
+                f"You will use the following starter code to write the solution to the problem and enclose your "
+                f"code within delimiters.\n```python\n{example['starter_code']}\n```"
+            )
+        else:
+            query_prompt += (
+                "Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test "
+                "on the sample inputs). Enclose your code within delimiters as follows. Ensure that when the python "
+                "program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."
+                "```python\n# YOUR CODE HERE\n```"
+            )
+
+        # Construct test cases
+        public_test_cases = json.loads(example["public_test_cases"])
+        try:
+            private_test_cases = json.loads(example["private_test_cases"])
+        except Exception as e:
+            print(f"Error loading private test cases: {e}")
+            private_test_cases = json.loads(
+                pickle.loads(zlib.decompress(base64.b64decode(example["private_test_cases"].encode("utf-8"))))
+            )
+        full_test_cases = public_test_cases + private_test_cases
+
+        metadata = json.loads(example["metadata"])
+        test_cases = {
+            "inputs": [t["input"] for t in full_test_cases],
+            "outputs": [t["output"] for t in full_test_cases],
+            "fn_name": metadata.get("func_name", None),
+        }
+        text_cases_compressed = base64.b64encode(zlib.compress(pickle.dumps(json.dumps(test_cases)))).decode("utf-8")
+        return query_prompt, text_cases_compressed
+
+    data_source = "livecodebench/code_generation_lite"
+    print(f"Loading the {data_source} dataset from huggingface...", flush=True)
+    dataset = load_dataset(data_source, split="test")
+    # R1 Evaluation use LiveCodeBench 24.08-25.01
+    dataset = dataset.filter(lambda line: "2024-08-00T00:00:00" <= line["contest_date"] < "2025-01-00T00:00:00")
+    map_fn = partial(
+        example_map_fn, process_fn=process_livecodebench, data_source=data_source, ability="Code", split="test"
+    )
+
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, num_proc=8)
+    return dataset
 
 def build_dataset(dataset_slug: str, add_answer_tag: bool, eval_holdout: int):
     ds = load_dataset(dataset_slug, split="train")
@@ -239,6 +297,3 @@ def build_dataset_oneshot(dataset_slug: str, tok, add_answer_tag: bool, eval_hol
         split = ds.train_test_split(test_size=eval_holdout, seed=42, shuffle=True)
         ds, eval_ds = split["train"], split["test"]
     return ds, eval_ds
-
-
-
