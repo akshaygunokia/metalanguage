@@ -50,7 +50,15 @@ def build_verl_parquet_openr1_bigmath_oneshot(subset="level_5", max_unique_promp
 
 def build_aime2024_dataset():
     def process_aime2024(example):
-        return example["Problem"], str(example["Answer"])
+        problem = example["Problem"]
+        # Force parseable final line
+        problem = (
+            problem
+            + "\n\nGive ONLY the final answer on the last line in exactly one of these formats:\n"
+            r"Answer: \boxed{<integer>}"
+            "\n"
+        )
+        return problem, str(example["Answer"])
 
     data_source = "Maxwell-Jia/AIME_2024"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
