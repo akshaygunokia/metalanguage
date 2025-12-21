@@ -5,6 +5,7 @@ from transformers import TrainerCallback
 import hashlib
 from typing import Optional
 import contextlib
+from matharena.grader import extract_and_grade
 from math_verify import LatexExtractionConfig, math_metric, ExprExtractionConfig
 
 def compute_score_gpqa(solution_str, ground_truth) -> float:
@@ -14,19 +15,24 @@ def compute_score_gpqa(solution_str, ground_truth) -> float:
     score = 1.0 if extracted_answer == ground_truth else 0.0
     return score
 
-def compute_score_aime(model_output: str, ground_truth: str) -> bool:
-    verify_func = math_metric(
-        gold_extraction_target=(LatexExtractionConfig(),),
-        pred_extraction_target=(ExprExtractionConfig(), LatexExtractionConfig()),
+def compute_score_aime(model_output: str, ground_truth: str) -> float:
+    messages = [
+        {"role": "assistant", "content": model_output}
+    ]
+    output_tokens = len(model_output)  # rough is fine
+    competition_config = {
+        "final_answer": True,
+        "strict_parsing": False,   # set True if you enforce \boxed{}
+    }
+    model_answer, is_correct, warning = extract_and_grade(
+        messages=messages,
+        output_tokens=output_tokens,
+        gold_answer=ground_truth,
+        competition_config=competition_config,
+        debug_info="my_eval_run"
     )
-    ret_score = 0.0
 
-    # Wrap the ground truth in \boxed{} format for verification
-    ground_truth_boxed = "\\boxed{" + ground_truth + "}"
-    with contextlib.suppress(Exception):
-        ret_score, _ = verify_func([ground_truth_boxed], [model_output])
-
-    return ret_score
+    return float(is_correct)
 
 def run_lm_eval(
     model_backend: str,
