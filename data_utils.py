@@ -16,6 +16,7 @@ def example_map_fn(example, idx, process_fn, data_source, ability, split):
         "ability": ability,
         "reward_model": {"style": "rule", "ground_truth": solution},
         "extra_info": {"split": split, "index": idx},
+        "agent_name": "tool_agent",
     }
     return data
 
