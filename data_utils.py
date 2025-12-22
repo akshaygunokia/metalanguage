@@ -6,13 +6,45 @@ import hashlib
 from datasets import load_dataset, concatenate_datasets
 from functools import partial
 
-system_prompt = '''You are an assistant that can use external tools'''
+strong_system_prompt = '''You are an assistant with access to a persistent Canvas tool that acts like a shared library of reusable modules.
+
+Canvas operations:
+- LIST(top_k): see available module signatures (sig) and short docs
+- READ(sig): fetch the current winning version (doc + blob)
+- PROPOSE(sig, doc, blob): add a new version for a signature
+
+Behavior:
+- First try LIST then READ to reuse something relevant to solve the problem.
+- If nothing fits, PROPOSE a small, reusable thought or module with a clear signature and short doc.
+- Do not spam PROPOSE; only add modules that will help across many problems.
+'''
+
+soft_system_prompt = '''You are a solver with access to a shared Canvas — a living library 
+that grows across many solvers and many tasks.
+
+Operations:
+- LIST(top_k) → see available modules
+- READ(sig) → fetch a module's blob
+- PROPOSE(sig, doc, blob) → contribute a new module
+
+How to work:
+1. LIST to see what exists
+2. READ anything that might help
+3. Solve the task
+4. If your reasoning could help future solvers, PROPOSE it
+
+The canvas is shared:
+- What you READ was left by others
+- What you PROPOSE may help others
+- Modules that help survive. Modules that don't fade.
+
+Solve the task. Use what helps. Leave what's useful.'''
 
 def example_map_fn(example, idx, process_fn, data_source, ability, split):
     question, solution = process_fn(example)
     data = {
         "data_source": data_source,
-        "prompt": [{"role": "user", "content": question}],
+        "prompt": [{"role":"system", "content": soft_system_prompt},{"role": "user", "content": question}],
         "ability": ability,
         "reward_model": {"style": "rule", "ground_truth": solution},
         "extra_info": {"split": split, "index": idx},
