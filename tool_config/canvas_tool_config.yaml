@@ -1,0 +1,41 @@
+tools:
+  - class_name: "metalang.canvas_tool.CanvasTool"
+    config:
+      type: native
+      bad_call_penalty: -0.05
+      good_call_reward: 0.0
+
+    tool_schema:
+      type: "function"
+      function:
+        name: "canvas_tool"
+        description: >
+          Persistent versioned module canvas.
+          Ops: LIST(top_k) -> module cards; READ(sig) -> winning {doc, blob};
+          PROPOSE(sig, doc, blob) -> store a new/updated version under sig.
+
+        parameters:
+          type: "object"
+          properties:
+            op:
+              type: "string"
+              enum: ["LIST", "READ", "PROPOSE"]
+              description: "Operation to perform."
+
+            sig:
+              type: "string"
+              description: "Required for READ/PROPOSE: stable module signature (identifier)."
+
+            doc:
+              type: "string"
+              description: "Required for PROPOSE: short documentation of what the module does."
+
+            blob:
+              type: "string"
+              description: "Required for PROPOSE: module content (code/text/proof/etc.)."
+
+            top_k:
+              type: "integer"
+              description: "LIST only: number of module cards to return (default ~8)."
+
+          required: ["op"]
