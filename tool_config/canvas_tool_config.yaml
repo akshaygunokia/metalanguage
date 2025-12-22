@@ -1,5 +1,5 @@
 tools:
-  - class_name: "metalang.canvas_tool.CanvasTool"
+  - class_name: "verl_canvas_tool.CanvasTool"
     config:
       type: native
       bad_call_penalty: -0.05
