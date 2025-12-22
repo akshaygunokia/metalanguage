@@ -9,7 +9,7 @@ RUN_NAME="grpo-$(date +%Y%m%d-%H%M%S)"
 echo "Run name: $RUN_NAME"
 
 PROJECT_DIR="$(pwd)"
-
+mkdir -p logs
 python -c "
 import os
 from data_utils import build_verl_parquet_openr1_bigmath_oneshot, build_aime2024_dataset
@@ -73,4 +73,5 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.test_freq=5 \
-    trainer.total_epochs=1500 $@
+    trainer.total_epochs=1500 $@ \
+    2>&1 | tee logs/${RUN_NAME}.log
