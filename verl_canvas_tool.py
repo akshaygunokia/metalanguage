@@ -10,8 +10,8 @@ from verl.tools.schemas import OpenAIFunctionToolSchema, ToolResponse
 from verl.utils.rollout_trace import rollout_trace_op
 import json
 # Import the canvas API functions (assumed to be available)
-from canvas_api import PROPOSE, READ, LIST
-
+from simple_canvas import Canvas
+_canvas = Canvas()
 
 class CanvasTool(BaseTool):
     """
@@ -112,7 +112,7 @@ class CanvasTool(BaseTool):
             with self._lock:
                 if op == "LIST":
                     top_k = parameters.get("top_k", 8)
-                    res = LIST(top_k=top_k)
+                    res = _canvas.LIST(top_k=top_k)
                     self._instance_dict[instance_id]["lists"] += 1
                     metrics["success"] = bool(res.get("success", False))
                     reward = self.good_call_reward if res.get("success") else self.bad_call_penalty
@@ -123,7 +123,7 @@ class CanvasTool(BaseTool):
                     if sig is None:
                         return ToolResponse(text="Error: 'sig' parameter required for READ."
                                             ), self.bad_call_penalty, {"success": False}
-                    res = READ(sig=sig)
+                    res = _canvas.READ(sig=sig)
                     if res.get("success"):
                         self._instance_dict[instance_id]["reads"].append(sig)
                     metrics["success"] = bool(res.get("success", False))
@@ -137,7 +137,7 @@ class CanvasTool(BaseTool):
                     if sig is None:
                         return ToolResponse(text="Error: 'sig' parameter required for PROPOSE."
                                             ), self.bad_call_penalty, {"success": False}
-                    res = PROPOSE(sig=sig, doc=doc, blob=blob)
+                    res = _canvas.PROPOSE(sig=sig, doc=doc, blob=blob)
                     if res.get("success"):
                         self._instance_dict[instance_id]["proposes"].append(sig)
                     metrics["success"] = bool(res.get("success", False))
