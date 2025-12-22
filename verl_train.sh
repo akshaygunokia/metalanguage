@@ -56,8 +56,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=sglang \
-    actor_rollout_ref.rollout.multi_turn=True \
-    actor_rollout_ref.rollout.multi_turn.tool_config_path="$PROJECT_DIR/tool_config/canvas_tool_config.yaml" \
+    actor_rollout_ref.rollout.multi_turn.enable=True \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/canvas_tool_config.yaml \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
