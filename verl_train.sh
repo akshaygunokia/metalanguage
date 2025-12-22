@@ -18,15 +18,13 @@ local_save_dir='data'
 os.makedirs(local_save_dir, exist_ok=True)
 
 train_ds = build_verl_parquet_openr1_bigmath_oneshot(
-    subset='level_4',
-    max_unique_prompts=2,
+    subset='level_5',
+    max_unique_prompts=16,
     max_train_size=128,
-    seed=42,
+    seed=4,
 )
 
 test_ds = build_aime2024_dataset()
-# Optional: hold out only first 50 for faster eval
-test_ds = test_ds.select(range(min(50, len(test_ds))))
 
 train_ds.to_parquet(os.path.join(local_save_dir, 'train.parquet'))
 test_ds.to_parquet(os.path.join(local_save_dir, 'test.parquet'))
