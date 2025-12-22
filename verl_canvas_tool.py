@@ -9,6 +9,8 @@ from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionToolSchema, ToolResponse
 from verl.utils.rollout_trace import rollout_trace_op
 import json
+import contextlib
+import io
 # Import the canvas API functions (assumed to be available)
 from simple_canvas import Canvas
 _canvas = Canvas()
@@ -29,7 +31,8 @@ class CanvasTool(BaseTool):
     _lock = threading.Lock()  # helps if multiple threads call into a shared in-proc canvas
 
     def __init__(self, config: dict, tool_schema: Optional[OpenAIFunctionToolSchema] = None):
-        super().__init__(config=config, tool_schema=tool_schema or self.get_openai_tool_schema())
+        with contextlib.redirect_stdout(io.StringIO()):
+            super().__init__(config=config, tool_schema=tool_schema or self.get_openai_tool_schema())
         self._instance_dict: Dict[str, Dict[str, Any]] = {}
 
         # shaping rewards (optional)
