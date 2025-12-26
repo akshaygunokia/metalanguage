@@ -36,7 +36,7 @@ class CanvasTool(BaseTool):
         self._instance_dict: Dict[str, Dict[str, Any]] = {}
 
         # shaping rewards (optional)
-        self.bad_call_penalty = float(config.get("bad_call_penalty", -0.05))
+        self.bad_call_penalty = float(config.get("bad_call_penalty", 0.0))
         self.good_call_reward = float(config.get("good_call_reward", 0.01))  # keep 0.0 if you only want penalties
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
