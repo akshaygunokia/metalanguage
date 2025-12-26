@@ -47,7 +47,12 @@ def example_map_fn(example, idx, process_fn, data_source, ability, split):
         "prompt": [{"role":"system", "content": soft_system_prompt},{"role": "user", "content": question}],
         "ability": ability,
         "reward_model": {"style": "rule", "ground_truth": solution},
-        "extra_info": {"split": split, "index": idx},
+        "extra_info": {"split": split, "index": idx, "need_tools_kwargs": True,
+                    "tools_kwargs": {
+                        "canvas_tool": {
+                            "calc_reward_kwargs": {"ground_truth": solution},
+                        },
+                    },},
         "agent_name": "tool_agent",
     }
     return data
