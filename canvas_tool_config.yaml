@@ -1,41 +1,60 @@
 tools:
-  - class_name: "verl_canvas_tool.CanvasTool"
+  - class_name: "verl_canvas_tool.CanvasListTool"
     config:
       type: native
-      bad_call_penalty: -0.05
-      good_call_reward: 0.0
-
+      bad_call_penalty: 0.0
+      good_call_reward: 0.01
     tool_schema:
       type: "function"
       function:
-        name: "canvas_tool"
-        description: >
-          Persistent versioned module canvas.
-          Ops: LIST(top_k) -> module cards; READ(sig) -> winning {doc, blob};
-          PROPOSE(sig, doc, blob) -> store a new/updated version under sig.
-
+        name: "canvas_list"
+        description: "List top modules available in the persistent Canvas."
         parameters:
           type: "object"
           properties:
-            op:
-              type: "string"
-              enum: ["LIST", "READ", "PROPOSE"]
-              description: "Operation to perform."
-
-            sig:
-              type: "string"
-              description: "Required for READ/PROPOSE: stable module signature (identifier)."
-
-            doc:
-              type: "string"
-              description: "Required for PROPOSE: short documentation of what the module does."
-
-            blob:
-              type: "string"
-              description: "Required for PROPOSE: module content (code/text/proof/etc.)."
-
             top_k:
               type: "integer"
-              description: "LIST only: number of module cards to return (default ~8)."
+              description: "Number of module cards to return (default 8)."
+          required: []
 
-          required: ["op"]
+  - class_name: "verl_canvas_tool.CanvasReadTool"
+    config:
+      type: native
+      bad_call_penalty: 0.0
+      good_call_reward: 0.01
+    tool_schema:
+      type: "function"
+      function:
+        name: "canvas_read"
+        description: "Read the current winning version of a module signature (sig) from the Canvas."
+        parameters:
+          type: "object"
+          properties:
+            sig:
+              type: "string"
+              description: "Module signature to read."
+          required: ["sig"]
+
+  - class_name: "verl_canvas_tool.CanvasProposeTool"
+    config:
+      type: native
+      bad_call_penalty: 0.0
+      good_call_reward: 0.01
+    tool_schema:
+      type: "function"
+      function:
+        name: "canvas_propose"
+        description: "Propose a new module version under a signature (sig) into the Canvas."
+        parameters:
+          type: "object"
+          properties:
+            sig:
+              type: "string"
+              description: "Module signature."
+            doc:
+              type: "string"
+              description: "Short documentation of what the module does."
+            blob:
+              type: "string"
+              description: "Module content (code/text/proof/etc.)."
+          required: ["sig", "doc", "blob"]
