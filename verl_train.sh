@@ -19,7 +19,7 @@ os.makedirs(local_save_dir, exist_ok=True)
 
 train_ds = build_verl_parquet_openr1_bigmath_oneshot(
     subset='level_5',
-    max_unique_prompts=16,
+    max_unique_prompts=64,
     max_train_size=128,
     seed=4,
 )
