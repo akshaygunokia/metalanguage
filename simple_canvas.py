@@ -12,6 +12,7 @@ from uuid import uuid4
 import threading
 import random
 import json, os
+import time
 from pathlib import Path
 import hashlib
 from contextlib import contextmanager
@@ -57,8 +58,17 @@ class Canvas:
         self._modules: Dict[str, Module] = {}
         self._root = Path(root)
         _ensure(self._root)
+        self._log_path = self._root / "canvas.log"
         self._lock_path = self._root / ".lock"
         self.load()
+
+    def _log(self, msg: str):
+        try:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(f"{ts} {msg}\n")
+        except Exception:
+            pass
 
     @contextmanager
     def _fs_lock(self, *, shared: bool):
@@ -146,11 +156,13 @@ class Canvas:
         with self._lock, self._fs_lock(shared=False):
             try:
                 version_id = _ver_id(blob)
+                self._log(f"PROPOSE sig={sig} vid={version_id} bytes={len(blob)}")
                 v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
                 if sig in self._modules:
                     m = self._modules[sig]
                     for existing in m.versions:
                         if existing.version_id == version_id:
+                            self._log(f"PROPOSE dedupe sig={sig} vid={version_id}")
                             return {"success": True}
                     m.versions.append(v)
                 else:
@@ -160,6 +172,7 @@ class Canvas:
                 self._save_version(sig, v)
                 return {"success": True}
             except Exception as e:
+                self._log(f"PROPOSE failed sig={sig} err={e}")
                 return {"success": False, "error": f"PROPOSE failed: {e}"}
 
     def READ(self, *, sig: str) -> Dict[str, Any]:
@@ -167,10 +180,13 @@ class Canvas:
             self.load()
             m = self._modules.get(sig)
             if m is None or not m.versions:
+                self._log(f"READ miss sig={sig}")
                 return {"success": False, "error": f"sig not found: {sig}"}
             version = self._pick_winning_version(m)
             if version is None:
+                self._log(f"READ no_versions sig={sig}")
                 return {"success": False, "error": f"no versions for sig: {sig}"}
+            self._log(f"READ hit sig={sig} vid={version.version_id} score={version.score}")
             return {"success": True, "data": {"sig": m.sig, "doc": version.doc, "blob": version.blob}}
 
     def LIST(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
@@ -189,7 +205,7 @@ class Canvas:
             items = [{"sig": sig, "doc": doc} for (_, sig, doc) in tmp]
             if top_k:
                 items = items[:top_k]
-    
+            self._log(f"LIST n={len(items)} top_k={top_k}")
             return {"success": True, "data": items}
 
     def update_score(self, *, sig: str, blob: str, delta: float) -> Dict[str, Any]:
