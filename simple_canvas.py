@@ -45,7 +45,6 @@ class Version:
     version_id: str
     blob: str
     score: float
-    doc: str
 
 @dataclass
 class Module:
@@ -127,7 +126,6 @@ class Canvas:
                         d = json.load(f)
                     versions.append(Version(
                         version_id=d["version_id"],
-                        doc=d["doc"],
                         blob=d["blob"],
                         score=d.get("score", 0.0),
                     ))
@@ -139,7 +137,6 @@ class Canvas:
         path = self._ver_path(sig, v.version_id)
         _atomic_json_write(path, {
             "version_id": v.version_id,
-            "doc": v.doc,
             "blob": v.blob,
             "score": v.score,
         })
@@ -152,12 +149,12 @@ class Canvas:
         top = [v for v in module.versions if v.score == max_score]
         return random.choice(top)
 
-    def PROPOSE(self, *, sig: str, doc: str, blob: str) -> Dict[str, Any]:
+    def PROPOSE(self, *, sig: str, blob: str) -> Dict[str, Any]:
         with self._lock, self._fs_lock(shared=False):
             try:
                 version_id = _ver_id(blob)
                 self._log(f"PROPOSE sig={sig} vid={version_id} bytes={len(blob)}")
-                v = Version(version_id=version_id, doc=doc, blob=blob, score=0.0)
+                v = Version(version_id=version_id, blob=blob, score=0.0)
                 if sig in self._modules:
                     m = self._modules[sig]
                     for existing in m.versions:
@@ -187,25 +184,25 @@ class Canvas:
                 self._log(f"READ no_versions sig={sig}")
                 return {"success": False, "error": f"no versions for sig: {sig}"}
             self._log(f"READ hit sig={sig} vid={version.version_id} score={version.score}")
-            return {"success": True, "data": {"sig": m.sig, "doc": version.doc, "blob": version.blob}}
+            return {"success": True, "data": {"sig": m.sig, "blob": version.blob}}
 
-    def LIST(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
+    def SHOW(self, *, top_k: Optional[int] = None) -> Dict[str, Any]:
         with self._lock, self._fs_lock(shared=True):
             self.load()
-            tmp: List[Tuple[float, str, str]] = []  # (score, sig, doc)
+            tmp: List[Tuple[float, str, str]] = []  # (score, sig)
     
             for sig, m in self._modules.items():
                 v = self._pick_winning_version(m)
                 if v is None:
                     continue
-                tmp.append((v.score, m.sig, v.doc))
+                tmp.append((v.score, m.sig, v.blob))
     
             tmp.sort(key=lambda t: t[0], reverse=True)
     
-            items = [{"sig": sig, "doc": doc} for (_, sig, doc) in tmp]
+            items = [{"sig": sig, "blob": blob} for (_, sig, blob) in tmp]
             if top_k:
                 items = items[:top_k]
-            self._log(f"LIST n={len(items)} top_k={top_k}")
+            self._log(f"SHOW n={len(items)} top_k={top_k}")
             return {"success": True, "data": items}
 
     def update_score(self, *, sig: str, blob: str, delta: float) -> Dict[str, Any]:

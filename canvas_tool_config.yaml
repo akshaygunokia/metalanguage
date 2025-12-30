@@ -1,31 +1,31 @@
 tools:
-  - class_name: "verl_canvas_tool.CanvasListTool"
+  - class_name: "verl_canvas_tool.CanvasShowTool"
     config:
       type: native
       bad_call_penalty: 0.0
-      good_call_reward: 0.01
+      good_call_reward: 0.0
     tool_schema:
       type: "function"
       function:
-        name: "canvas_list"
-        description: "List top modules available in the persistent Canvas."
+        name: "show"
+        description: "Show top modules available in the persistent Canvas."
         parameters:
           type: "object"
           properties:
             top_k:
               type: "integer"
-              description: "Number of module cards to return (default 8)."
+              description: "Number of modules to return (default 8)."
           required: []
 
   - class_name: "verl_canvas_tool.CanvasReadTool"
     config:
       type: native
       bad_call_penalty: 0.0
-      good_call_reward: 0.01
+      good_call_reward: 0.0
     tool_schema:
       type: "function"
       function:
-        name: "canvas_read"
+        name: "read"
         description: "Read the current winning version of a module signature (sig) from the Canvas."
         parameters:
           type: "object"
@@ -39,11 +39,11 @@ tools:
     config:
       type: native
       bad_call_penalty: 0.0
-      good_call_reward: 0.01
+      good_call_reward: 0.0
     tool_schema:
       type: "function"
       function:
-        name: "canvas_propose"
+        name: "propose"
         description: "Propose a new module version under a signature (sig) into the Canvas."
         parameters:
           type: "object"
@@ -51,10 +51,7 @@ tools:
             sig:
               type: "string"
               description: "Module signature."
-            doc:
-              type: "string"
-              description: "Short documentation of what the module does."
             blob:
               type: "string"
               description: "Module content (code/text/proof/etc.)."
-          required: ["sig", "doc", "blob"]
+          required: ["sig", "blob"]

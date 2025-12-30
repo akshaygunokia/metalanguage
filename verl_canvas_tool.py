@@ -40,22 +40,22 @@ class _CanvasBaseTool(BaseTool):
         self._instance_dict.pop(instance_id, None)
 
 
-class CanvasListTool(_CanvasBaseTool):
-    """Tool: canvas_list(top_k=8)"""
+class CanvasShowTool(_CanvasBaseTool):
+    """Tool: show(top_k=8)"""
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return OpenAIFunctionToolSchema.model_validate(
             {
                 "type": "function",
                 "function": {
-                    "name": "canvas_list",
-                    "description": "List top modules available in the persistent Canvas.",
+                    "name": "show",
+                    "description": "Show top modules available in the persistent Canvas.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "top_k": {
                                 "type": "integer",
-                                "description": "Number of module cards to return (default 8).",
+                                "description": "Number of modules to return (default 8).",
                             }
                         },
                         "required": [],
@@ -67,31 +67,31 @@ class CanvasListTool(_CanvasBaseTool):
     async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
         if instance_id is None:
             instance_id = str(uuid4())
-        self._instance_dict[instance_id] = {"lists": 0}
+        self._instance_dict[instance_id] = {"shows": 0}
         return instance_id, ToolResponse()
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         top_k = parameters.get("top_k", 8)
         try:
-            res = _canvas.LIST(top_k=top_k)
-            self._instance_dict.setdefault(instance_id, {"lists": 0})["lists"] += 1
+            res = _canvas.SHOW(top_k=top_k)
+            self._instance_dict.setdefault(instance_id, {"shows": 0})["shows"] += 1
             ok = bool(res.get("success", False))
             reward = self.good_call_reward if ok else self.bad_call_penalty
-            return ToolResponse(text=_as_pretty_json(res)), reward, {"success": ok, "op": "LIST", "top_k": top_k}
+            return ToolResponse(text=_as_pretty_json(res)), reward, {"success": ok, "op": "SHOW", "top_k": top_k}
         except Exception as e:
-            return ToolResponse(text=f"canvas_list error: {e}"), self.bad_call_penalty, {"success": False, "op": "LIST"}
+            return ToolResponse(text=f"show error: {e}"), self.bad_call_penalty, {"success": False, "op": "SHOW"}
 
 
 class CanvasReadTool(_CanvasBaseTool):
-    """Tool: canvas_read(sig)"""
+    """Tool: read(sig)"""
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return OpenAIFunctionToolSchema.model_validate(
             {
                 "type": "function",
                 "function": {
-                    "name": "canvas_read",
+                    "name": "read",
                     "description": "Read the current winning version of a module signature (sig) from the Canvas.",
                     "parameters": {
                         "type": "object",
@@ -127,27 +127,26 @@ class CanvasReadTool(_CanvasBaseTool):
             reward = self.good_call_reward if ok else self.bad_call_penalty
             return ToolResponse(text=_as_pretty_json(res)), reward, {"success": ok, "op": "READ", "sig": sig}
         except Exception as e:
-            return ToolResponse(text=f"canvas_read error: {e}"), self.bad_call_penalty, {"success": False, "op": "READ", "sig": sig}
+            return ToolResponse(text=f"read error: {e}"), self.bad_call_penalty, {"success": False, "op": "READ", "sig": sig}
 
 
 class CanvasProposeTool(_CanvasBaseTool):
-    """Tool: canvas_propose(sig, doc, blob)"""
+    """Tool: propose(sig, blob)"""
 
     def get_openai_tool_schema(self) -> OpenAIFunctionToolSchema:
         return OpenAIFunctionToolSchema.model_validate(
             {
                 "type": "function",
                 "function": {
-                    "name": "canvas_propose",
+                    "name": "propose",
                     "description": "Propose a new module version under a signature (sig) into the Canvas.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "sig": {"type": "string", "description": "Module signature."},
-                            "doc": {"type": "string", "description": "Short documentation."},
                             "blob": {"type": "string", "description": "Module content."},
                         },
-                        "required": ["sig", "doc", "blob"],
+                        "required": ["sig", "blob"],
                     },
                 },
             }
@@ -162,7 +161,6 @@ class CanvasProposeTool(_CanvasBaseTool):
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
         sig = parameters.get("sig")
-        doc = parameters.get("doc")
         blob = parameters.get("blob")
 
         if not isinstance(sig, str) or not sig:
@@ -170,22 +168,22 @@ class CanvasProposeTool(_CanvasBaseTool):
                 "success": False,
                 "op": "PROPOSE",
             }
-        if not isinstance(doc, str) or not isinstance(blob, str):
-            return ToolResponse(text="Error: 'doc' and 'blob' must be strings."), self.bad_call_penalty, {
+        if not isinstance(blob, str):
+            return ToolResponse(text="Error: 'blob' must be strings."), self.bad_call_penalty, {
                 "success": False,
                 "op": "PROPOSE",
                 "sig": sig,
             }
 
         try:
-            res = _canvas.PROPOSE(sig=sig, doc=doc, blob=blob)
+            res = _canvas.PROPOSE(sig=sig, blob=blob)
             ok = bool(res.get("success", False))
             if ok:
                 self._instance_dict.setdefault(instance_id, {"proposes": []})["proposes"].append(sig)
             reward = self.good_call_reward if ok else self.bad_call_penalty
             return ToolResponse(text=_as_pretty_json(res)), reward, {"success": ok, "op": "PROPOSE", "sig": sig}
         except Exception as e:
-            return ToolResponse(text=f"canvas_propose error: {e}"), self.bad_call_penalty, {
+            return ToolResponse(text=f"propose error: {e}"), self.bad_call_penalty, {
                 "success": False,
                 "op": "PROPOSE",
                 "sig": sig,
