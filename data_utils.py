@@ -58,7 +58,7 @@ def build_verl_parquet_openr1_bigmath_oneshot(subset="level_5", max_unique_promp
     data_source = "open-r1/Big-Math-RL-Verified-Processed"
     ability = "math"
 
-    train_ds = load_dataset(data_source, subset, split="train").shuffle(seed=seed)
+    train_ds = load_dataset(data_source, subset, split="train").shuffle(seed=seed, load_from_cache_file=False)
 
     if max_unique_prompts and len(train_ds) > max_unique_prompts:
         train_ds = train_ds.select(range(max_unique_prompts))
@@ -80,7 +80,7 @@ def build_verl_parquet_openr1_bigmath_oneshot(subset="level_5", max_unique_promp
     train_map_fn = partial(
         example_map_fn, process_fn=process_openr1_bigmath, data_source=data_source, ability=ability, split="train"
     )
-    train_ds = train_ds.map(train_map_fn, with_indices=True, remove_columns=train_ds.column_names)
+    train_ds = train_ds.map(train_map_fn, with_indices=True, remove_columns=train_ds.column_names, load_from_cache_file=False)
     return train_ds
 
 def build_aime2024_dataset():
@@ -101,7 +101,7 @@ def build_aime2024_dataset():
     map_fn = partial(
         example_map_fn, process_fn=process_aime2024, data_source=data_source, ability="Math", split="test"
     )
-    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, load_from_cache_file=False)
     return dataset
 
 
@@ -132,7 +132,7 @@ def build_gpqa_diamond_dataset():
     map_fn = partial(
         example_map_fn, process_fn=process_gpqa_diamond, data_source=data_source, ability="Science", split="test"
     )
-    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names)
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, load_from_cache_file=False,)
     return dataset
 
 
@@ -147,13 +147,13 @@ def build_cnmo2024_dataset():
     map_fn_en = partial(
         example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_en", ability="Math", split="test"
     )
-    dataset_en = dataset_en.map(map_fn_en, with_indices=True, remove_columns=dataset_en.column_names)
+    dataset_en = dataset_en.map(map_fn_en, with_indices=True, remove_columns=dataset_en.column_names, load_from_cache_file=False,)
 
     dataset_zh = load_dataset(data_source, "v202412_CNMO_cn", split="test")
     map_fn_zh = partial(
         example_map_fn, process_fn=process_cnmo2024, data_source="opencompass/cnmo2024_zh", ability="Math", split="test"
     )
-    dataset_zh = dataset_zh.map(map_fn_zh, with_indices=True, remove_columns=dataset_zh.column_names)
+    dataset_zh = dataset_zh.map(map_fn_zh, with_indices=True, remove_columns=dataset_zh.column_names, load_from_cache_file=False,)
 
     dataset = concatenate_datasets([dataset_en, dataset_zh])
     return dataset
@@ -214,7 +214,7 @@ def build_livecodebench_dataset():
         example_map_fn, process_fn=process_livecodebench, data_source=data_source, ability="Code", split="test"
     )
 
-    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, num_proc=8)
+    dataset = dataset.map(map_fn, with_indices=True, remove_columns=dataset.column_names, num_proc=8, load_from_cache_file=False)
     return dataset
 
 def build_dataset(dataset_slug: str, add_answer_tag: bool, eval_holdout: int):
