@@ -30,7 +30,11 @@ class _CanvasBaseTool(BaseTool):
     async def calc_reward(self, instance_id: str, **kwargs) -> float:
         """
         Optional tool-scoped reward. For v0, keep it 0.0.
-
+        kwargs general structure for all calls not just calc_reward is {'assistant_turns': 'int',  'extra_fields': {},  'image_data': 'NoneType',
+        'interaction': 'NoneType',  'interaction_kwargs': {},  'messages': 'list',  'metrics': {'generate_sequences': 'float'}, 
+        'prompt_ids': 'list',  'request_id': 'str',  'response_ids': 'list',  'response_logprobs': 'list',  'response_mask': 'list',
+        'tool_calls': 'list',  'tool_rewards': 'list',  'tools_kwargs': {'canvas_tool': {'calc_reward_kwargs': 'dict'}},
+        'turn_scores': 'list',  'user_turns': 'int'}
         If later you want tool-terminal shaping (e.g., penalize too many proposes),
         you can compute it from self._instance_dict[instance_id].
         """
@@ -160,6 +164,12 @@ class CanvasProposeTool(_CanvasBaseTool):
 
     @rollout_trace_op
     async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
+        agent_data = kwargs.get("agent_data")
+        tools_kwargs = (getattr(agent_data, "tools_kwargs", None) or {})
+        split = tools_kwargs.get("split")
+        if split == "test":
+            return ToolResponse(text="Skipped PROPOSE on test split."), 0.0, {"success": True, "op": "PROPOSE", "skipped": True}
+
         sig = parameters.get("sig")
         blob = parameters.get("blob")
 
