@@ -193,7 +193,7 @@ actor_rollout_ref:
     enforce_eager: false
     cudagraph_capture_sizes: null
     free_cache_engine: true
-    tensor_model_parallel_size: 2
+    tensor_model_parallel_size: 1
     data_parallel_size: 1
     expert_parallel_size: 1
     pipeline_model_parallel_size: 1
@@ -229,7 +229,7 @@ actor_rollout_ref:
       tool_config_path: null
       max_user_turns: null
       max_parallel_calls: 1
-      max_tool_response_length: 256
+      max_tool_response_length: 2048
       tool_response_truncate_side: middle
       interaction_config_path: null
       use_inference_chat_template: false
